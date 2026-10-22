@@ -12,7 +12,7 @@ export function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <a className="brand" href="/">
       <span className="brand-icon">
-        <HeartPulse size={26} />
+        <img src="/images/hospital-logo.png" alt="ตราโรงพยาบาลปลวกแดง" width={48} height={48} />
       </span>
       <span>
         <b>

@@ -56,6 +56,8 @@ All password changes in tests use disposable synthetic accounts; the configured 
 
 ## Remaining acceptance
 
+Hospital logo update: shared public/header/footer and staff-sidebar branding now uses `public/images/hospital-logo.png`, exported from the existing matching hospital favicon without redrawing. TypeScript, lint (existing table warning) and production build passed. Production browser checks on port 3036 verified loaded square logo images at 1366px and 390px viewport widths with no horizontal overflow; screenshots were reviewed locally.
+
 Port configuration update: application development/start commands, Playwright URLs/origins, OpenAPI server URL, local setup script, PM2 and Nginx upstream now use **3036**. TypeScript passed. Production server smoke checks at `127.0.0.1:3036` returned HTTP 200 for health and favicon; guest session creation accepted `Origin: http://localhost:3036` (200) and rejected the old port 3000 origin (403). The browser suite was not completed for this port-only update because the local development server accepted sockets but did not respond to HTTP; verification used the production build instead. No hospital host was modified or deployed.
 
 These results establish local checks for implemented flows, not completion of every module or production acceptance. See [requirements](requirements.md) for remaining functionality and [security and operations](security-operations.md) for release gates. Live OTP, clinical/finance/privacy sign-off, production MFA, restore drills, accessibility UAT, infrastructure setup and deployment remain unverified.
