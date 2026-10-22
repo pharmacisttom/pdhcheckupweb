@@ -2,6 +2,12 @@
 
 No host/domain/SSH credential is assumed. No production action has been executed.
 
+Application port: **3036**. Both `npm run dev` and `npm start` pass this port explicitly. The PM2 template binds `127.0.0.1:3036`; the Nginx template forwards to that same upstream. Check this port is available on the hospital host before starting the service.
+
+For a standalone build, set process environment `PORT=3036` and `HOSTNAME=127.0.0.1` before running `.next/standalone/server.js`; copy `public` and `.next/static` into the standalone directory as required by Next.js. The standalone server does not use the npm start command. `PORT` must be set in the process environment, rather than relying on `.env` loading.
+
+Set `APP_URL` to the exact browser origin: for direct internal access use the approved hostname and port, e.g. `https://APPROVED_HOST:3036`; when HTTPS terminates at the reverse proxy on port 443, use `https://APPROVED_DOMAIN` without the internal upstream port. This value controls same-origin mutation validation. Local development/tests use `http://localhost:3036`. Keep the actual domain, credentials and environment files outside Git.
+
 1. Obtain explicit authorization and inspect OS, Node support, free memory/disk, service ports, existing Nginx sites/certificates, PM2 apps, database instances, backup jobs and firewall. Record results without secrets. Do not restart or overwrite shared infrastructure.
 2. Prepare a named isolated application directory, non-root OS user, least-privilege MySQL application account and separate migration account. MySQL must be accessible only locally or through an approved private network. Require MySQL 8 InnoDB utf8mb4 and UTC sessions.
 3. Review dependency audit, clinical/finance/privacy approvals and UAT. Run `npm ci`, `npm run db:generate`, `npm run typecheck`, `npm test`, DB integration tests, E2E tests and `npm run build` in a staging environment.

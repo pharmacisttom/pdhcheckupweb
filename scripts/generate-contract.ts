@@ -171,7 +171,7 @@ fs.writeFileSync(
         description:
           "Core schemas included; remaining request details are authoritative in Zod source. Not a complete enterprise API contract.",
       },
-      servers: [{ url: "http://localhost:3000" }],
+      servers: [{ url: "http://localhost:3036" }],
       paths,
       components: {
         securitySchemes: {

@@ -112,11 +112,11 @@ test("staff login and database dashboard", async ({ page }) => {
 test("staff can pause online booking, receive callback details, and reopen booking", async ({
   browser,
 }) => {
-  const staff = await browser.newContext({ baseURL: 'http://localhost:3000' });
-  const customer = await browser.newContext({ baseURL: 'http://localhost:3000' });
+  const staff = await browser.newContext({ baseURL: 'http://localhost:3036' });
+  const customer = await browser.newContext({ baseURL: 'http://localhost:3036' });
   const admin = await staff.newPage();
   const page = await customer.newPage();
-  const origin = { Origin: "http://localhost:3000" };
+  const origin = { Origin: "http://localhost:3036" };
   const login = await staff.request.post("/api/v1/auth/login", {
     headers: origin,
     data: {

@@ -20,7 +20,7 @@ $pidPath = Join-Path $taskRoot '.local\mysql.pid'
 Start-Process -FilePath $serverPath -WindowStyle Hidden -ArgumentList @('--no-defaults', "--basedir=$mysqlRoot", "--datadir=$dataPath", '--bind-address=127.0.0.1', '--port=3308', '--mysqlx=0', "--init-file=$initPath", "--log-error=$logPath", "--pid-file=$pidPath")
 $envPath = Join-Path $taskRoot '.env'
 if (Test-Path -LiteralPath $envPath) { throw 'Refusing to overwrite .env.' }
-$envText = "DATABASE_URL=`"mysql://pdh_dev:$appPassword@127.0.0.1:3308/pdh_healthcheck`"`nAPP_URL=`"http://localhost:3000`"`nDATA_ENCRYPTION_KEY=`"$(New-TaskSecret)`"`nOTP_PEPPER=`"$(New-TaskSecret)`"`nOTP_PROVIDER=`"test`"`nSEED_DEMO=`"true`"`nSEED_ADMIN_EMAIL=`"admin@pdh.test`"`nSEED_ADMIN_PASSWORD=`"$adminPassword`"`n"
+$envText = "DATABASE_URL=`"mysql://pdh_dev:$appPassword@127.0.0.1:3308/pdh_healthcheck`"`nAPP_URL=`"http://localhost:3036`"`nDATA_ENCRYPTION_KEY=`"$(New-TaskSecret)`"`nOTP_PEPPER=`"$(New-TaskSecret)`"`nOTP_PROVIDER=`"test`"`nSEED_DEMO=`"true`"`nSEED_ADMIN_EMAIL=`"admin@pdh.test`"`nSEED_ADMIN_PASSWORD=`"$adminPassword`"`n"
 [System.IO.File]::WriteAllText($envPath, $envText)
 $rootConfig = "[client]`nuser=root`npassword=$rootPassword`nhost=127.0.0.1`nport=3308`n"
 [System.IO.File]::WriteAllText((Join-Path $taskRoot '.local\mysql-root.cnf'), $rootConfig)

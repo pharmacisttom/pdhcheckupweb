@@ -28,8 +28,8 @@ test("staff changes own password, logs in again and loses previous sessions", as
       passwordHash: await bcrypt.hash(original, 12),
     },
   });
-  const other = await browser.newContext({ baseURL: "http://localhost:3000" });
-  const headers = { Origin: "http://localhost:3000" };
+  const other = await browser.newContext({ baseURL: "http://localhost:3036" });
+  const headers = { Origin: "http://localhost:3036" };
   try {
     expect(
       (

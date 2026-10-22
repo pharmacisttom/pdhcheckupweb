@@ -6,11 +6,11 @@ export default defineConfig({
   workers: 1,
   timeout: 60000,
   expect: { timeout: 20000 },
-  use: { baseURL: "http://localhost:3000" },
+  use: { baseURL: "http://localhost:3036" },
   webServer: {
     command:
-      "node node_modules/next/dist/bin/next dev --webpack --hostname=localhost",
-    url: "http://localhost:3000",
+      "node node_modules/next/dist/bin/next dev --webpack --hostname=localhost --port=3036",
+    url: "http://localhost:3036",
     reuseExistingServer: !process.env.CI,
   },
 });
