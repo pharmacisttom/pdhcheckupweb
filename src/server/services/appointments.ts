@@ -86,6 +86,9 @@ export async function createHold(sessionId: string, slotId: string) {
       await assertOnlineBooking(tx);
       // Serializes holds for one session without reversing the day/slot lock order.
       await tx.$queryRaw`SELECT id FROM Session WHERE id = ${sessionId} FOR UPDATE`;
+      const identity = await tx.session.findUnique({ where: { id: sessionId } });
+      if (!identity?.verifiedPhone || identity.expiresAt <= new Date())
+        throw new AppError(401, 'กรุณายืนยันเบอร์โทรศัพท์');
       await tx.hold.updateMany({
         where: { sessionId, consumed: false },
         data: { expiresAt: new Date() },

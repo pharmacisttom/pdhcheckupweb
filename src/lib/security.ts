@@ -65,7 +65,7 @@ export async function session(required = true): Promise<Identity | null> {
         include: { user: true },
       })
     : null;
-  if (!s || s.expiresAt < new Date() || (s.userId && !s.user?.active)) {
+  if (!s || s.expiresAt <= new Date() || (s.userId && (!s.user?.active || (process.env.NODE_ENV === 'production' && !s.user.mfaSecret)))) {
     if (required)
       throw new AppError(401, "กรุณายืนยันตัวตน", "UNAUTHENTICATED");
     return null;

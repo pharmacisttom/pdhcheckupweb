@@ -1,5 +1,7 @@
 # Security and operational acceptance checklist
 
+Local white-box pentest and remediation evidence (22 October 2026): [report](pentest-2026-10-22.md). Application checks passed for the documented cases; unresolved dependency, perimeter, CSP and operational gates remain. This does not replace an authorized staging/production infrastructure pentest.
+
 Use OWASP ASVS 5.0.0 with a hospital-approved verification scope. The presence of this file does not imply compliance.
 
 - [ ] Clinical/finance approval recorded for every public rule/package/price.

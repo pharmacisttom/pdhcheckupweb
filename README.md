@@ -33,6 +33,7 @@ npm run lint
 npm test
 npm run build
 npm run test:e2e
+npm run test:pentest
 ```
 
 Integration test ใช้ฐานชื่อ `pdh_healthcheck_test` เท่านั้น ตั้ง DATABASE_URL ของฐานทดสอบที่ migrate แล้ว และ RUN_DB_TESTS=true ก่อน `npm test` ไม่ใช้ mock แทน InnoDB หรืออ้างว่าผ่านเมื่อไม่มี MySQL

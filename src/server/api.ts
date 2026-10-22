@@ -1,4 +1,5 @@
 import { availableSlots } from "./services/availability";
+import { boundedRequest } from '@/lib/request-limits';
 import { changePassword, changePasswordSchema } from './services/passwords';
 import { bookingPolicy, setBookingPolicy, submitContactRequest } from './services/booking-policy';
 import { NextResponse } from "next/server";
@@ -61,7 +62,10 @@ export async function api(req: Request, path: string[]) {
   const url = new URL(req.url);
   const correlationId = crypto.randomUUID();
   try {
-    if (!["GET", "HEAD"].includes(method)) await sameOrigin(req);
+    if (!["GET", "HEAD"].includes(method)) {
+      await sameOrigin(req);
+      req = await boundedRequest(req, resource === 'admin/imports' ? 2200000 : 100000);
+    }
     let data: unknown;
     if (method === "GET" && resource === "health") {
       if (!process.env.DATABASE_URL)
@@ -79,6 +83,7 @@ export async function api(req: Request, path: string[]) {
             : "configured",
       };
     } else if (method === "POST" && resource === "auth/guest") {
+      await rateLimit('guest:global', 1000, 60);
       const old = await session(false);
       data = old
         ? { authenticated: true, verified: !!old.verifiedPhone }
@@ -98,12 +103,12 @@ export async function api(req: Request, path: string[]) {
           mfa: z.string().max(10).optional(),
         }),
       );
+      await rateLimit("login:global", 500, 900);
       await rateLimit(
         "login:" + privateHash(input.email.toLowerCase()),
         5,
         900,
       );
-      await rateLimit("login:global", 500, 900);
       const user = await db.user.findUnique({
         where: { email: input.email.toLowerCase() },
       });
@@ -157,9 +162,9 @@ export async function api(req: Request, path: string[]) {
         req,
         z.object({ phone: personSchema.shape.phone }),
       );
+      await rateLimit("otp:global", 100, 600);
       await rateLimit("otp-session:" + s.id, 3, 600);
       await rateLimit("otp-phone:" + privateHash(phone), 3, 600);
-      await rateLimit("otp:global", 100, 600);
       const test =
         process.env.OTP_PROVIDER === "test" &&
         process.env.NODE_ENV !== "production";
@@ -313,6 +318,7 @@ export async function api(req: Request, path: string[]) {
       const s = (await session())!;
       if (!s.verifiedPhone)
         throw new AppError(401, "กรุณายืนยัน OTP ก่อนบันทึกข้อมูล");
+      await rateLimit('registrations:' + s.id, 30, 600);
       const input = await body(
         req,
         z.object({
@@ -346,6 +352,7 @@ export async function api(req: Request, path: string[]) {
         expiresAt: new Date(Date.now() + 24 * 3600000),
       };
       data = await db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM Session WHERE id = ${s.id} FOR UPDATE`;
         if (input.id) {
           const existing = await tx.registration.findFirst({
             where: { id: input.id, ownerSessionId: s.id, booking: null },
@@ -385,6 +392,8 @@ export async function api(req: Request, path: string[]) {
         : null;
     } else if (method === "POST" && resource === "quotes") {
       const s = (await session())!;
+      if (!s.verifiedPhone) throw new AppError(401, 'กรุณายืนยันเบอร์โทรศัพท์');
+      await rateLimit('quotes:' + s.id, 30, 600);
       const input = await body(
         req,
         z.object({ packageId: str, addonIds: z.array(str).max(50) }),
@@ -397,7 +406,9 @@ export async function api(req: Request, path: string[]) {
       data = await availableSlots(from);
     } else if (method === "POST" && resource === "holds") {
       const s = (await session())!;
+      if (!s.verifiedPhone) throw new AppError(401, 'กรุณายืนยันเบอร์โทรศัพท์');
       await rateLimit("holds:" + s.id, 10, 600);
+      await rateLimit('holds-phone:' + privateHash(decrypt<string>(s.verifiedPhone)), 10, 600);
       const input = await body(req, z.object({ slotId: str }));
       const h = await createHold(s.id, input.slotId);
       data = { id: h.id, expiresAt: h.expiresAt };
@@ -455,6 +466,7 @@ export async function api(req: Request, path: string[]) {
     } else if (method === 'POST' && resource === 'waitlist') {
       const s = (await session())!;
       if (!s.verifiedPhone) throw new AppError(401, 'กรุณายืนยันเบอร์โทรศัพท์');
+      await rateLimit('waitlist:' + s.id, 10, 600);
       const input = await body(req, z.object({ day: z.iso.date() }));
       if (new Date(input.day + 'T00:00:00+07:00').getTime() < Date.now()) throw new AppError(422, 'วันที่ต้องไม่อยู่ในอดีต');
       const w = await db.waitlist.upsert({ where: { sessionId_dayId: { sessionId: s.id, dayId: input.day } }, create: { sessionId: s.id, dayId: input.day }, update: { status: 'waiting' } });
@@ -464,6 +476,7 @@ export async function api(req: Request, path: string[]) {
     } else if (method === "POST" && resource === "privacy/requests") {
       const s = (await session())!;
       if (!s.verifiedPhone) throw new AppError(401, "กรุณายืนยันเบอร์โทรศัพท์");
+      await rateLimit('privacy-requests:' + s.id, 5, 3600);
       const input = await body(
         req,
         z.object({
@@ -821,6 +834,7 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
   }
   if (resource === "imports" && method === "POST") {
     const s = await guard("imports:write");
+    await rateLimit('imports:' + s.user!.id, 10, 600);
     if (Number(req.headers.get("content-length")) > 2200000)
       throw new AppError(413, "ไฟล์ใหญ่เกินกำหนด");
     const form = await req.formData();

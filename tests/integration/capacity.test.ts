@@ -1,6 +1,7 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { createHold } from "../../src/server/services/appointments";
+import { encrypt } from '../../src/lib/security';
 const enabled = process.env.RUN_DB_TESTS === "true";
 const db = new PrismaClient();
 describe.skipIf(!enabled)("real MySQL InnoDB capacity contention", () => {
@@ -29,6 +30,7 @@ describe.skipIf(!enabled)("real MySQL InnoDB capacity contention", () => {
         (
           await db.session.create({
             data: {
+              verifiedPhone: encrypt('+66810000000'),
               tokenHash:
                 crypto.randomUUID().replaceAll("-", "") +
                 crypto.randomUUID().replaceAll("-", ""),

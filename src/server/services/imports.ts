@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { AppError, audit } from "@/lib/security";
+import { assertSafeXlsx, assertCsvRowLimit } from './import-limits';
 const rowSchema = z
   .object({
     service_code: z.string().min(1).max(80),
@@ -66,22 +67,11 @@ export async function stageImport(
   const data = Buffer.from(await file.arrayBuffer());
   const book = new ExcelJS.Workbook();
   if (/\.csv$/i.test(file.name)) {
+    assertCsvRowLimit(data);
     const { Readable } = await import("node:stream");
     await book.csv.read(Readable.from([data]));
   } else if (/\.xlsx$/i.test(file.name)) {
-    // Reject excessive ZIP expansion before passing XML to ExcelJS.
-    let expanded = 0;
-    let entries = 0;
-    for (let i = 0; i + 46 <= data.length; i++)
-      if (data.readUInt32LE(i) === 0x02014b50) {
-        expanded += data.readUInt32LE(i + 24);
-        entries++;
-      }
-    if (!entries || expanded > 20 * 1024 * 1024 || entries > 1000)
-      throw new AppError(
-        422,
-        "ไฟล์ XLSX มีขนาดขยายหรือจำนวนส่วนประกอบเกินกำหนด",
-      );
+    assertSafeXlsx(data);
     await book.xlsx.load(
       data as unknown as Parameters<typeof book.xlsx.load>[0],
     );

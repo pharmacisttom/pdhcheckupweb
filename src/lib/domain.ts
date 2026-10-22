@@ -131,11 +131,11 @@ export function validateAnswers(
         (q.max !== undefined && v > q.max))
     )
       errors.push(q.label + ": ค่าต้องอยู่ในช่วงที่กำหนด");
-    if (q.type === "single" && !q.options?.includes(String(v)))
+    if (q.type === "single" && (typeof v !== 'string' || !q.options?.includes(v)))
       errors.push(q.label + ": ตัวเลือกไม่ถูกต้อง");
     if (
       q.type === "multiple" &&
-      (!Array.isArray(v) || v.some((x) => !q.options?.includes(String(x))))
+      (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !q.options?.includes(x)))
     )
       errors.push(q.label + ": ตัวเลือกไม่ถูกต้อง");
     if (q.type === "text" && typeof v !== "string")
@@ -149,7 +149,7 @@ export function evaluateRules(
   version: number,
 ) {
   return rules
-    .filter((r) => answers[r.field] === r.equals)
+    .filter((r) => Array.isArray(answers[r.field]) ? (answers[r.field] as unknown[]).includes(r.equals) : answers[r.field] === r.equals)
     .map((r) => ({
       ruleId: r.id,
       version,
