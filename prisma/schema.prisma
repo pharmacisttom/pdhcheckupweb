@@ -1,0 +1,301 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "mysql"
+  url = env("DATABASE_URL")
+}
+
+model User {
+  id String @id @default(cuid())
+  email String @unique @db.VarChar(191)
+  passwordHash String @db.VarChar(255)
+  role String @db.VarChar(40)
+  name String @db.VarChar(160)
+  mfaSecret String? @db.Text
+  active Boolean @default(true)
+  organizationId String?
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  sessions Session[]
+}
+model Session {
+  id String @id @default(cuid())
+  tokenHash String @unique @db.Char(64)
+  userId String?
+  user User? @relation(fields: [userId], references: [id], onDelete: Restrict)
+  verifiedPhone String? @db.Text
+  expiresAt DateTime @db.DateTime(3)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  @@index([expiresAt])
+}
+model RateLimit {
+  key String @id @db.VarChar(191)
+  count Int
+  expiresAt DateTime @db.DateTime(3)
+}
+model Verification {
+  id String @id @default(cuid())
+  sessionId String
+  phoneHash String @db.Char(64)
+  phoneEncrypted String @db.Text
+  codeHash String @db.Char(64)
+  attempts Int @default(0)
+  expiresAt DateTime @db.DateTime(3)
+  consumedAt DateTime? @db.DateTime(3)
+  @@index([sessionId, expiresAt])
+}
+model Patient {
+  id String @id @default(cuid())
+  detailsEncrypted String @db.LongText
+  identityHash String? @unique @db.Char(64)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  registrations Registration[]
+}
+model Registration {
+  id String @id @default(cuid())
+  ownerSessionId String
+  patientId String?
+  patient Patient? @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  draftEncrypted String @db.LongText
+  assessmentEncrypted String? @db.LongText
+  questionnaireVersion Int @default(1)
+  organizationId String?
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+  expiresAt DateTime @db.DateTime(3)
+  booking Booking?
+  @@index([ownerSessionId])
+}
+model Service {
+  id String @id @default(cuid())
+  code String @unique @db.VarChar(80)
+  nameTh String @db.VarChar(255)
+  nameEn String @db.VarChar(255)
+  category String @db.VarChar(80)
+  unit String @default("รายการ") @db.VarChar(40)
+  active Boolean @default(true)
+  requiresReview Boolean @default(false)
+  preparation String? @db.Text
+  componentCodes Json
+  prices Price[]
+  packageItems PackageItem[]
+}
+model Price {
+  id String @id @default(cuid())
+  serviceId String
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  amount Decimal @db.Decimal(12,2)
+  effectiveFrom DateTime @db.DateTime(3)
+  effectiveTo DateTime? @db.DateTime(3)
+  version Int
+  approvedBy String
+  importId String?
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  @@unique([serviceId, version])
+  @@index([serviceId, effectiveFrom])
+}
+model Package {
+  id String @id @default(cuid())
+  key String @db.VarChar(80)
+  version Int
+  name String @db.VarChar(255)
+  description String @db.Text
+  audience String @db.VarChar(255)
+  fixedPrice Decimal @db.Decimal(12,2)
+  minAge Int @default(0)
+  maxAge Int @default(120)
+  preparation String @db.Text
+  status String @default("draft") @db.VarChar(30)
+  effectiveFrom DateTime @db.DateTime(3)
+  effectiveTo DateTime? @db.DateTime(3)
+  approvedBy String?
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  items PackageItem[]
+  @@unique([key, version])
+  @@index([status, effectiveFrom])
+}
+model PackageItem {
+  id String @id @default(cuid())
+  packageId String
+  package Package @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  serviceId String
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  position Int
+  mode String @default("included") @db.VarChar(30)
+  @@unique([packageId, serviceId])
+}
+model Questionnaire {
+  id String @id @default(cuid())
+  version Int @unique
+  questions Json
+  rules Json
+  status String @default("draft") @db.VarChar(30)
+  approvedBy String?
+  createdAt DateTime @default(now()) @db.DateTime(3)
+}
+model DayCapacity {
+  id String @id @db.VarChar(10)
+  capacity Int
+  blackout Boolean @default(false)
+  slots Slot[]
+}
+model Slot {
+  id String @id @default(cuid())
+  dayId String @db.VarChar(10)
+  day DayCapacity @relation(fields: [dayId], references: [id], onDelete: Restrict)
+  startsAt DateTime @unique @db.DateTime(3)
+  endsAt DateTime @db.DateTime(3)
+  capacity Int
+  reservedCapacity Int @default(0)
+  closed Boolean @default(false)
+  holds Hold[]
+  bookings Booking[]
+}
+model Hold {
+  id String @id @default(cuid())
+  sessionId String
+  slotId String
+  slot Slot @relation(fields: [slotId], references: [id], onDelete: Restrict)
+  expiresAt DateTime @db.DateTime(3)
+  consumed Boolean @default(false)
+  @@index([slotId, expiresAt])
+  @@index([sessionId])
+}
+model Quote {
+  id String @id @default(cuid())
+  sessionId String
+  packageId String
+  snapshot Json
+  fingerprint String @db.Char(64)
+  total Decimal @db.Decimal(12,2)
+  expiresAt DateTime @db.DateTime(3)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  bookings Booking[]
+}
+model Booking {
+  id String @id @default(cuid())
+  reference String @unique @db.VarChar(40)
+  registrationId String @unique
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  sessionId String
+  slotId String
+  slot Slot @relation(fields: [slotId], references: [id], onDelete: Restrict)
+  quoteId String
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  status String @default("confirmed") @db.VarChar(30)
+  idempotencyKey String @unique @db.VarChar(100)
+  requestHash String @db.Char(64)
+  checkInTokenHash String @unique @db.Char(64)
+  checkInTokenEncrypted String @db.Text
+  cancellationReason String? @db.VarChar(500)
+  checkedInAt DateTime? @db.DateTime(3)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+  @@index([slotId, status])
+  @@index([sessionId])
+}
+model ImportBatch {
+  id String @id @default(cuid())
+  fileHash String @db.Char(64)
+  operatorId String
+  rows Json
+  errors Json
+  status String @default("staged") @db.VarChar(30)
+  approvedBy String?
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  @@index([fileHash])
+}
+model Organization {
+  id String @id @default(cuid())
+  name String @db.VarChar(255)
+  contactEncrypted String @db.Text
+  status String @default("draft") @db.VarChar(30)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+}
+model Invoice {
+  id String @id @default(cuid())
+  bookingId String @unique
+  estimatedAmount Decimal @db.Decimal(12,2)
+  approvedAmount Decimal? @db.Decimal(12,2)
+  actualBilledAmount Decimal? @db.Decimal(12,2)
+  paidAmount Decimal? @db.Decimal(12,2)
+  status String @default("estimate") @db.VarChar(30)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+}
+model PrivacyRecord {
+  id String @id @default(cuid())
+  sessionId String
+  noticeVersion String @db.VarChar(30)
+  purpose String @db.VarChar(100)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+}
+model PrivacyRequest {
+  id String @id @default(cuid())
+  sessionId String
+  type String @db.VarChar(30)
+  status String @default("pending_identity_review") @db.VarChar(40)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+}
+model Notification {
+  id String @id @default(cuid())
+  event String @db.VarChar(80)
+  dedupKey String @unique @db.VarChar(191)
+  payloadEncrypted String @db.Text
+  status String @default("unconfigured") @db.VarChar(30)
+  attempts Int @default(0)
+  nextAttemptAt DateTime? @db.DateTime(3)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+}
+model Audit {
+  id String @id @default(cuid())
+  actorId String
+  action String @db.VarChar(100)
+  resourceId String
+  correlationId String @db.VarChar(100)
+  metadata Json
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  @@index([createdAt])
+  @@index([resourceId])
+}
+
+model Waitlist {
+  id String @id @default(cuid())
+  sessionId String
+  dayId String @db.VarChar(10)
+  status String @default("waiting") @db.VarChar(30)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  @@unique([sessionId, dayId])
+  @@index([dayId, status, createdAt])
+}
+
+model BookingChange {
+  id String @id @default(cuid())
+  bookingId String
+  sessionId String
+  idempotencyKey String @unique @db.VarChar(100)
+  requestHash String @db.Char(64)
+  previousSlotId String
+  newSlotId String
+  createdAt DateTime @default(now()) @db.DateTime(3)
+}
+
+model BookingPolicy {
+  id String @id @db.VarChar(30)
+  onlineEnabled Boolean @default(true)
+  message String @db.VarChar(1000)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+}
+
+model ContactRequest {
+  id String @id @default(cuid())
+  reference String @unique @db.VarChar(40)
+  registrationId String @unique
+  sessionId String
+  payloadEncrypted String @db.LongText
+  status String @default("pending") @db.VarChar(30)
+  noteEncrypted String? @db.Text
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+  @@index([sessionId])
+  @@index([status, createdAt])
+}

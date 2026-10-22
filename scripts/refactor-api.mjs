@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+const file = 'src/server/api.ts';
+let source = fs.readFileSync(file, 'utf8');
+const begin = source.indexOf('      const slots = await db.slot.findMany({');
+const end = source.indexOf('    } else if (method === "POST" && resource === "holds")', begin);
+if (begin < 0 || end < 0) throw new Error('Expected availability branch not found');
+source = source.slice(0, begin) + '      data = await availableSlots(from);\n' + source.slice(end);
+source = 'import { availableSlots } from "./services/availability";\n' + source;
+source = source.replace('  ageOn,\n', '');
+fs.writeFileSync(file, source);

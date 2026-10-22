@@ -1,0 +1,2062 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PDH Smart Health Check API",
+    "version": "1.0.0-development",
+    "description": "Core schemas included; remaining request details are authoritative in Zod source. Not a complete enterprise API contract."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000"
+    }
+  ],
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "operationId": "get_health",
+        "summary": "health",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "operationId": "get_auth_me",
+        "summary": "auth/me",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/packages": {
+      "get": {
+        "operationId": "get_packages",
+        "summary": "packages",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/services": {
+      "get": {
+        "operationId": "get_services",
+        "summary": "services",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/questionnaire": {
+      "get": {
+        "operationId": "get_questionnaire",
+        "summary": "questionnaire",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/registrations/draft": {
+      "get": {
+        "operationId": "get_registrations_draft",
+        "summary": "registrations/draft",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/slots": {
+      "get": {
+        "operationId": "get_slots",
+        "summary": "slots",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/booking-policy": {
+      "get": {
+        "operationId": "get_booking_policy",
+        "summary": "booking-policy",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/contact-requests": {
+      "get": {
+        "operationId": "get_contact_requests",
+        "summary": "contact-requests",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_contact_requests",
+        "summary": "contact-requests",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/booking-policy": {
+      "get": {
+        "operationId": "get_admin_booking_policy",
+        "summary": "admin/booking-policy",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_admin_booking_policy",
+        "summary": "admin/booking-policy",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/contact-requests": {
+      "get": {
+        "operationId": "get_admin_contact_requests",
+        "summary": "admin/contact-requests",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/bookings": {
+      "get": {
+        "operationId": "get_bookings",
+        "summary": "bookings",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_bookings",
+        "summary": "bookings",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/dashboard": {
+      "get": {
+        "operationId": "get_admin_dashboard",
+        "summary": "admin/dashboard",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/bookings": {
+      "get": {
+        "operationId": "get_admin_bookings",
+        "summary": "admin/bookings",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/packages": {
+      "get": {
+        "operationId": "get_admin_packages",
+        "summary": "admin/packages",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_admin_packages",
+        "summary": "admin/packages",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/imports": {
+      "get": {
+        "operationId": "get_admin_imports",
+        "summary": "admin/imports",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_admin_imports",
+        "summary": "admin/imports",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/organizations": {
+      "get": {
+        "operationId": "get_admin_organizations",
+        "summary": "admin/organizations",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_admin_organizations",
+        "summary": "admin/organizations",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/quotations": {
+      "get": {
+        "operationId": "get_admin_quotations",
+        "summary": "admin/quotations",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/reports": {
+      "get": {
+        "operationId": "get_admin_reports",
+        "summary": "admin/reports",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/audit": {
+      "get": {
+        "operationId": "get_admin_audit",
+        "summary": "admin/audit",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/privacy": {
+      "get": {
+        "operationId": "get_admin_privacy",
+        "summary": "admin/privacy",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/guest": {
+      "post": {
+        "operationId": "post_auth_guest",
+        "summary": "auth/guest",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "post_auth_login",
+        "summary": "auth/login",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "post_auth_logout",
+        "summary": "auth/logout",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/change-password": {
+      "post": {
+        "operationId": "post_auth_change_password",
+        "summary": "auth/change-password",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/otp/request": {
+      "post": {
+        "operationId": "post_otp_request",
+        "summary": "otp/request",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/otp/verify": {
+      "post": {
+        "operationId": "post_otp_verify",
+        "summary": "otp/verify",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/registrations": {
+      "post": {
+        "operationId": "post_registrations",
+        "summary": "registrations",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/quotes": {
+      "post": {
+        "operationId": "post_quotes",
+        "summary": "quotes",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuoteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/holds": {
+      "post": {
+        "operationId": "post_holds",
+        "summary": "holds",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/contact-requests/status": {
+      "post": {
+        "operationId": "post_admin_contact_requests_status",
+        "summary": "admin/contact-requests/status",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/bookings/{id}/cancel": {
+      "post": {
+        "operationId": "post_bookings__id__cancel",
+        "summary": "bookings/{id}/cancel",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/privacy/requests": {
+      "post": {
+        "operationId": "post_privacy_requests",
+        "summary": "privacy/requests",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/bookings/status": {
+      "post": {
+        "operationId": "post_admin_bookings_status",
+        "summary": "admin/bookings/status",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/checkin": {
+      "post": {
+        "operationId": "post_admin_checkin",
+        "summary": "admin/checkin",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/packages/status": {
+      "post": {
+        "operationId": "post_admin_packages_status",
+        "summary": "admin/packages/status",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/slots": {
+      "post": {
+        "operationId": "post_admin_slots",
+        "summary": "admin/slots",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/imports/approve": {
+      "post": {
+        "operationId": "post_admin_imports_approve",
+        "summary": "admin/imports/approve",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/reports/export": {
+      "post": {
+        "operationId": "post_admin_reports_export",
+        "summary": "admin/reports/export",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "See Zod request schema in src/server/api.ts for full validation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Envelope: data and correlationId"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission or origin denied"
+          },
+          "409": {
+            "description": "Capacity, state, price or idempotency conflict"
+          },
+          "422": {
+            "description": "Validation failed"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Dependency unconfigured or unavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "pdh_session"
+      }
+    },
+    "schemas": {
+      "Person": {
+        "type": "object",
+        "required": [
+          "firstName",
+          "lastName",
+          "birthdate",
+          "phone"
+        ],
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "lastName": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "birthdate": {
+            "type": "string",
+            "format": "date"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "documentType": {
+            "type": "string",
+            "enum": [
+              "none",
+              "thai_id",
+              "passport"
+            ]
+          },
+          "identifier": {
+            "type": "string",
+            "maxLength": 50
+          }
+        }
+      },
+      "QuoteRequest": {
+        "type": "object",
+        "required": [
+          "packageId",
+          "addonIds"
+        ],
+        "properties": {
+          "packageId": {
+            "type": "string"
+          },
+          "addonIds": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ConfirmRequest": {
+        "type": "object",
+        "required": [
+          "registrationId",
+          "holdId",
+          "quoteId",
+          "fingerprint",
+          "idempotencyKey",
+          "privacyAcknowledged"
+        ],
+        "properties": {
+          "registrationId": {
+            "type": "string"
+          },
+          "holdId": {
+            "type": "string"
+          },
+          "quoteId": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "privacyAcknowledged": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      }
+    }
+  }
+}
