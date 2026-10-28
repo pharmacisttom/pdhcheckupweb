@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "dev": "next dev --webpack --port 3036",
+    "dev": "next dev --turbopack --port 3036",
     "build": "prisma generate && next build --webpack",
     "start": "next start --port 3036",
     "typecheck": "tsc --noEmit",
@@ -16,7 +16,9 @@
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "format": "prettier --write src prisma tests docs",
     "test:db": "node scripts/test-db.mjs",
-    "api:contract": "tsx scripts/generate-contract.ts"
+    "api:contract": "tsx scripts/generate-contract.ts",
+    "test:unit": "vitest run tests/unit",
+    "test:interest:e2e": "playwright test --config playwright.interest.config.ts"
   },
   "keywords": [],
   "author": "",

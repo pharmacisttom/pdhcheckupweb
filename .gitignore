@@ -9,3 +9,9 @@ test-results/
 backups/
 .local/
 .vscode/
+
+*.pem
+*.key
+mfa-enrollment*
+*.sql.gz
+*.dump

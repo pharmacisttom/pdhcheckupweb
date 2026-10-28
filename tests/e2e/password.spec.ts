@@ -1,3 +1,5 @@
+import { encrypt } from '../../src/lib/security';
+import { operatorTotp } from '../../src/lib/mfa';
 import { test, expect } from "@playwright/test";
 import { loadEnvFile } from "node:process";
 import fs from "node:fs";
@@ -26,6 +28,7 @@ test("staff changes own password, logs in again and loses previous sessions", as
       name: "Password browser test",
       role: "registration",
       passwordHash: await bcrypt.hash(original, 12),
+      mfaSecret: encrypt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'),
     },
   });
   const other = await browser.newContext({ baseURL: "http://localhost:3036" });
@@ -47,7 +50,7 @@ test("staff changes own password, logs in again and loses previous sessions", as
       (
         await other.request.post("/api/v1/auth/login", {
           headers,
-          data: { email, password: original },
+          data: { email, password: original, mfa: operatorTotp('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ').generate() },
         })
       ).ok(),
     ).toBe(true);
@@ -60,6 +63,7 @@ test("staff changes own password, logs in again and loses previous sessions", as
     await page.goto("/login");
     await page.getByLabel("อีเมล", { exact: true }).fill(email);
     await page.getByLabel("รหัสผ่าน", { exact: true }).fill(original);
+    await page.locator('input[name="mfa"]').fill(operatorTotp('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ').generate());
     await page
       .getByRole("button", { name: "เข้าสู่ระบบ", exact: true })
       .click();
@@ -91,6 +95,7 @@ test("staff changes own password, logs in again and loses previous sessions", as
     await page.getByRole("link", { name: "เข้าสู่ระบบใหม่" }).click();
     await page.getByLabel("อีเมล", { exact: true }).fill(email);
     await page.getByLabel("รหัสผ่าน", { exact: true }).fill(replacement);
+    await page.locator('input[name="mfa"]').fill(operatorTotp('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ').generate());
     await page
       .getByRole("button", { name: "เข้าสู่ระบบ", exact: true })
       .click();

@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { LockKeyhole } from "lucide-react";
 import { request } from "@/lib/client";
 import { ErrorState } from "./ui";
@@ -9,7 +8,6 @@ export function Login() {
   useEffect(() => {
     setReady(true);
   }, []);
-  const router = useRouter();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   return (
@@ -30,9 +28,11 @@ export function Login() {
             setError("");
             const form = new FormData(e.currentTarget);
             try {
-              await request("auth/login", Object.fromEntries(form));
-              router.replace("/admin/dashboard");
-              router.refresh();
+              const result = await request<{ next: string }>(
+                "auth/login",
+                Object.fromEntries(form),
+              );
+              window.location.replace(result.next);
             } catch (err) {
               setError((err as Error).message);
             } finally {

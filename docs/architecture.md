@@ -27,3 +27,17 @@ Browser → same-origin API → validation and ownership/RBAC → domain service
 ## Deployment limitations
 
 This is an in-development application, not a production certification. The requirements/status register is authoritative. Hospital assets, source workbook, approved packages/prices, clinical rule approval, privacy/legal review, live notification contracts, MFA enrollment procedure, backup restoration and UAT remain release dependencies.
+
+## Synchronization audit — 2026-10-22
+
+Homepage: src/app/(public)/page.tsx now renders #packages first, followed by #how-it-works and preparation. PublicLayout retains branding, registration, bookings and staff login; its footer is #contact. PackageList still uses React Query and GET /api/v1/packages; the API filters published, approved, currently effective MySQL records and returns price, audience, age limits, items and preparation. PackageCard uses the existing details dialog and /register?package=ID. No redirect or duplicate package section was introduced.
+
+Feature inventory: six-step registration, private guest sessions and phone verification, versioned questionnaires and risk rules, effective package pricing and quote snapshots, capacity holds, idempotent booking confirmation, rescheduling/cancellation/check-in, booking policy and contact requests; staff password changes, MFA login, RBAC, dashboard, calendar, package/catalog/questionnaire configuration, organizations, imports and financial approvals, reports, privacy and audit workspaces. Existing services and routes remain.
+
+Verified security controls: opaque hashed sessions and expiry, Secure cookies in production, same-origin mutation validation, database-backed login/OTP throttling, bcrypt cost 12, encrypted sensitive fields, parameterized Prisma/raw tagged queries, transactional day/slot locks and unique idempotency constraints. TOTP parameters now share a helper. CLI upsert previously replaced existing credentials/MFA silently; replacement is now explicit and transactionally revokes sessions. Enrollment artifacts are exclusive/private, with local QR rendering.
+
+Deployment gap: prior docs and ops templates described generic PM2/manual setup. New deploy/ tooling targets the supplied systemd/release architecture; old references are preserved and superseded for this VPS. Remote state is unverified. Live SMS/notification integration, restore drills, dependency advisory remediation, MFA operational recovery, clinical/privacy approval and hospital UAT remain release dependencies. See production-sync-report-2026-10-22.md.
+
+## Administrative users and onboarding
+
+The staff extension adds /admin/users, /auth/activate, /auth/password and /auth/mfa/setup while retaining the existing catch-all API and opaque sessions. Manager has users:manage for non-Superadmin accounts; Superadmin retains wildcard access and exclusive Superadmin administration. Session.stage enforces pre-MFA isolation centrally and inside session(). See USER_MANAGEMENT.md for the state machine, storage, concurrency, migration and rollback constraints.

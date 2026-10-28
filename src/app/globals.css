@@ -1407,3 +1407,479 @@ td strong {
     width: calc(100% - 40px);
   }
 }
+
+/* Packages are the homepage entry point, including hash navigation. */
+#packages,
+#how-it-works,
+#contact {
+  scroll-margin-top: 110px;
+}
+.packages-primary {
+  padding: 28px 0 40px;
+}
+.packages-primary .section-intro {
+  margin-bottom: 24px;
+}
+.packages-primary h1 {
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  line-height: 1.45;
+  margin-bottom: 8px;
+}
+.packages-primary .package-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.packages-primary .package-card > .button {
+  margin-top: auto;
+}
+.package-skeleton {
+  min-height: 330px;
+  gap: 24px;
+}
+.package-skeleton > div {
+  width: 100%;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--border);
+}
+.package-skeleton > div:nth-child(2) {
+  height: 100px;
+}
+@media (max-width: 480px) {
+  .packages-primary {
+    padding-top: 20px;
+  }
+}
+
+@media (max-width: 800px) {
+  .public-header .nav {
+    flex-wrap: wrap;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .public-header .nav nav {
+    display: flex;
+    order: 3;
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px 16px;
+  }
+  .public-header .nav nav a {
+    font-size: 12px;
+    padding: 6px 0;
+  }
+}
+
+.mfa-qr {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 20px auto;
+}
+.mfa-key {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  background: var(--bg);
+  border-radius: 8px;
+  font-size: 16px;
+}
+.staff-editor,
+.invitation-result {
+  margin-bottom: 24px;
+}
+.staff-editor form + form {
+  border-top: 1px solid var(--border);
+  margin-top: 24px;
+  padding-top: 24px;
+}
+.invitation-result input {
+  width: 100%;
+}
+
+.package-services {
+  min-width: 0;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.package-services legend {
+  padding: 0 6px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+/* Mobile application layout: shared controls retain their desktop behavior. */
+.mobile-bottom-nav,
+.mobile-app-title {
+  display: none;
+}
+.mobile-menu-overlay {
+  position: fixed;
+  inset: 0;
+  background: #082d42a6;
+  z-index: 100;
+}
+.mobile-menu-panel {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(100%, 420px);
+  background: var(--surface);
+  z-index: 101;
+  padding: max(22px, env(safe-area-inset-top)) 20px
+    max(22px, env(safe-area-inset-bottom));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.mobile-menu-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.mobile-menu-heading h2 {
+  margin: 0;
+  font-size: 21px;
+}
+.mobile-menu-heading p {
+  margin: 4px 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.mobile-menu-panel nav {
+  display: grid;
+  gap: 5px;
+}
+.mobile-menu-panel nav a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  min-height: 48px;
+  border-radius: 12px;
+}
+.mobile-menu-panel nav a[aria-current="page"] {
+  background: #e3f5f0;
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+@media (max-width: 800px) {
+  .admin-shell,
+  .public-app-shell {
+    padding-bottom: calc(86px + env(safe-area-inset-bottom));
+  }
+  .sidebar {
+    display: none;
+  }
+  .admin-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    height: auto;
+    min-height: 68px;
+    padding: 10px 16px;
+    gap: 10px;
+    background: #ffffffed;
+    backdrop-filter: blur(14px);
+  }
+  .mobile-app-title {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+    line-height: 1.5;
+  }
+  .mobile-app-title b {
+    font-size: 14px;
+    color: var(--primary-dark);
+  }
+  .mobile-app-title small {
+    font-size: 11px;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .admin-topbar .avatar,
+  .admin-topbar .topbar-right > div {
+    display: none;
+  }
+  .admin-topbar .topbar-right {
+    gap: 0;
+  }
+  .menu-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .mobile-bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 45;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: #fffffffa;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 -5px 24px #16304708;
+  }
+  .mobile-bottom-nav a,
+  .mobile-bottom-nav button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+    min-height: 52px;
+    padding: 5px 2px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: #536879;
+    font: inherit;
+    font-size: 10px;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .mobile-bottom-nav [aria-current="page"] {
+    background: #e3f5f0;
+    color: var(--primary-dark);
+    font-weight: 700;
+  }
+  .public-header .nav {
+    gap: 8px;
+  }
+  .public-header .nav > nav {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .public-header .nav > nav a {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+  .public-header .nav > .button {
+    font-size: 11px;
+    padding: 10px;
+  }
+  .admin-main {
+    padding: 22px 16px;
+    min-width: 0;
+  }
+  .page-header {
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .page-header h1 {
+    font-size: 24px;
+    line-height: 1.5;
+  }
+  .page-header > .button {
+    width: 100%;
+    justify-content: center;
+  }
+  .card {
+    border-radius: 18px;
+    min-width: 0;
+  }
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px;
+    min-height: 44px;
+    max-width: 100%;
+  }
+  .button {
+    min-height: 44px;
+    white-space: normal;
+  }
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .form-actions {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .form-actions > .button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .metric {
+    min-width: 0;
+    padding: 16px;
+    border-radius: 16px;
+  }
+  .table-wrap:has(> .responsive-table) {
+    overflow: visible;
+  }
+  .responsive-table,
+  .responsive-table tbody {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  .responsive-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    clip-path: inset(50%);
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .responsive-table tbody {
+    display: grid;
+    gap: 14px;
+  }
+  .responsive-table tbody tr {
+    display: block;
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 8px 14px;
+    box-shadow: 0 3px 12px #16304704;
+  }
+  .responsive-table tbody td {
+    display: grid;
+    grid-template-columns: minmax(85px, 35%) minmax(0, 1fr);
+    align-items: start;
+    gap: 8px 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid #edf2f5;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+  .responsive-table tbody td::before {
+    content: attr(data-label);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+  }
+  .responsive-table tbody td:last-child {
+    border-bottom: 0;
+  }
+  .responsive-table tbody td[colspan],
+  .responsive-table tbody td:not([data-label]) {
+    display: block;
+  }
+  .responsive-table tbody td[colspan]::before,
+  .responsive-table tbody td:not([data-label])::before {
+    content: none;
+  }
+  .responsive-table td > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .responsive-table td .form-actions {
+    margin: 0;
+  }
+  .modal {
+    width: calc(100% - 24px);
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+    padding: 22px;
+    border-radius: 22px;
+  }
+  footer .footer-content {
+    gap: 22px;
+  }
+}
+@media print {
+  .mobile-bottom-nav,
+  .mobile-app-title,
+  .mobile-menu-panel,
+  .mobile-menu-overlay {
+    display: none !important;
+  }
+}
+
+.mobile-table-sort {
+  display: none;
+}
+@media (max-width: 800px) {
+  .mobile-table-sort {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 16px;
+    color: var(--muted);
+  }
+  .responsive-table thead button {
+    visibility: hidden;
+  }
+}
+
+.mobile-cell-value {
+  display: contents;
+}
+@media (max-width: 800px) {
+  .mobile-cell-value {
+    display: block;
+    min-width: 0;
+  }
+  .mobile-cell-value > * {
+    max-width: 100%;
+  }
+  .responsive-table tbody td {
+    grid-template-columns: minmax(80px, 30%) minmax(0, 1fr);
+  }
+}
+@media (max-width: 480px) {
+  .public-header .nav > .button {
+    display: none;
+  }
+}
+
+.campaign-section { padding-block: 32px; }
+.campaign-section summary { cursor: pointer; font-weight: 600; padding: 16px 0; }
+.campaign-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.campaign-grid figure { margin: 0; min-width: 0; }
+.campaign-grid img { border-radius: 12px; }
+.campaign-grid figcaption { padding-block: 8px; }
+@media (max-width: 1000px) { .campaign-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .campaign-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Public controls: three primary destinations, safe areas and multilingual text. */
+body { font-family: 'Sarabun', 'Noto Sans Thai', 'Noto Sans SC', 'Noto Sans Myanmar', 'Noto Sans Khmer', 'Myanmar Text', 'Khmer UI', 'Microsoft YaHei', Tahoma, Arial, sans-serif; }
+.language-switcher { display: inline-flex; flex-shrink: 0; }
+.language-switcher select { min-height: 44px; max-width: 145px; padding: 8px; }
+.public-header .nav { flex-wrap: wrap; gap: 12px; }
+.public-header nav { flex-wrap: wrap; }
+.public-app-shell button, .public-app-shell .button, .public-app-shell select, .public-header a { min-height: 44px; }
+.public-app-shell input, .public-app-shell textarea { scroll-margin-block: 100px; }
+.public-app-shell fieldset { min-width: 0; }
+.public-app-shell .review-list dd, .public-app-shell h1, .public-app-shell p { overflow-wrap: anywhere; }
+.mobile-bottom-nav { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.campaign-grid img { object-fit: contain; }
+@media (max-width:800px) {
+ .public-app-shell { padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
+ .public-header .nav { padding-inline: max(16px,env(safe-area-inset-left)); }
+ .public-header .brand { flex: 1 1 auto; min-width: 0; }
+ .public-header .brand b { font-size: 17px; }
+ .mobile-bottom-nav { padding-bottom: env(safe-area-inset-bottom); }
+ .mobile-bottom-nav a { min-width: 0; min-height: 56px; }
+ .language-switcher select { max-width: 120px; }
+ .registration-container { padding-bottom: 24px; }
+ .stepper { overflow-x: auto; max-width:100%; }
+}
+@media (max-height:500px) and (max-width:800px) { .mobile-bottom-nav { position:static; } }
+
+@font-face { font-family:'PDH Chinese'; src:url('/fonts/notosanssc.ttf') format('truetype'); font-weight:100 900; font-display:swap; }
+@font-face { font-family:'PDH Myanmar'; src:url('/fonts/notosansmyanmar.ttf') format('truetype'); font-weight:100 900; font-display:swap; }
+@font-face { font-family:'PDH Khmer'; src:url('/fonts/notosanskhmer.ttf') format('truetype'); font-weight:100 900; font-display:swap; }
+html:lang(zh-Hans) body { font-family:'PDH Chinese',Tahoma,Arial,sans-serif; }
+html:lang(my) body { font-family:'PDH Myanmar',Tahoma,Arial,sans-serif; }
+html:lang(km) body { font-family:'PDH Khmer',Tahoma,Arial,sans-serif; }
+
+.public-header .nav > nav a { display:inline-flex; align-items:center; min-width:44px; min-height:44px; }
+@media (max-width:600px) { .public-header .nav > nav { display:none; } }

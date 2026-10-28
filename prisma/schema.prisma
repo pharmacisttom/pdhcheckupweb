@@ -13,16 +13,21 @@ model User {
   role String @db.VarChar(40)
   name String @db.VarChar(160)
   mfaSecret String? @db.Text
+  activationRequired Boolean @default(false)
+  mustChangePassword Boolean @default(false)
   active Boolean @default(true)
   organizationId String?
   createdAt DateTime @default(now()) @db.DateTime(3)
   sessions Session[]
+  invitations UserInvitation[]
 }
 model Session {
   id String @id @default(cuid())
   tokenHash String @unique @db.Char(64)
   userId String?
   user User? @relation(fields: [userId], references: [id], onDelete: Restrict)
+  stage String @default("full") @db.VarChar(20)
+  pendingMfaSecret String? @db.Text
   verifiedPhone String? @db.Text
   expiresAt DateTime @db.DateTime(3)
   createdAt DateTime @default(now()) @db.DateTime(3)
@@ -294,8 +299,29 @@ model ContactRequest {
   payloadEncrypted String @db.LongText
   status String @default("pending") @db.VarChar(30)
   noteEncrypted String? @db.Text
+  legacyStatus String? @db.VarChar(30)
+  assignedTo String? @db.VarChar(191)
+  entitlementStatus String @default("unverified") @db.VarChar(30)
+  reviewEncrypted String? @db.LongText
+  quoteId String?
+  bookingId String? @unique
+  acceptedSlotId String?
+  acceptedFingerprint String? @db.Char(64)
+  acceptedAt DateTime? @db.DateTime(3)
   createdAt DateTime @default(now()) @db.DateTime(3)
   updatedAt DateTime @updatedAt @db.DateTime(3)
   @@index([sessionId])
   @@index([status, createdAt])
+}
+
+model UserInvitation {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  tokenHash String @unique @db.Char(64)
+  expiresAt DateTime @db.DateTime(3)
+  consumedAt DateTime? @db.DateTime(3)
+  createdBy String
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  @@index([userId, expiresAt])
 }

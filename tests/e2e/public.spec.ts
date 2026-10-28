@@ -3,7 +3,7 @@ test("public home provides accessible registration and privacy entry points", as
   page,
 }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /สุขภาพดี/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /แพ็กเกจตรวจสุขภาพ โรงพยาบาลปลวกแดง/ })).toBeVisible();
   await page
     .getByRole("link", { name: "ลงทะเบียนตรวจสุขภาพ", exact: true })
     .first()

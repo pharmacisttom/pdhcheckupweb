@@ -1,6 +1,8 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { AppError, audit, decrypt, encrypt, token } from "@/lib/security";
+import { PRIVACY_VERSION } from "@/lib/intake";
+import { validateAnswers, type Question } from "@/lib/domain";
 import type { Person } from "@/lib/domain";
 
 export async function bookingPolicy() {
@@ -36,7 +38,13 @@ export async function setBookingPolicy(
 
 export async function submitContactRequest(
   sessionId: string,
-  input: { registrationId: string; quoteId: string; privacyAcknowledged: true },
+  input: {
+    registrationId: string;
+    quoteId?: string;
+    interestedPackageId?: string;
+    privacyAcknowledged: true;
+    noticeVersion?: string;
+  },
 ) {
   return db.$transaction(
     async (tx) => {
@@ -62,10 +70,16 @@ export async function submitContactRequest(
           booking: null,
         },
       });
-      const quote = await tx.quote.findFirst({
-        where: { id: input.quoteId, sessionId, expiresAt: { gt: new Date() } },
-      });
-      if (!registration || !quote)
+      const quote = input.quoteId
+        ? await tx.quote.findFirst({
+            where: {
+              id: input.quoteId,
+              sessionId,
+              expiresAt: { gt: new Date() },
+            },
+          })
+        : null;
+      if (!registration || (input.quoteId && !quote))
         throw new AppError(
           409,
           "ข้อมูลหรือราคาประมาณการหมดอายุ กรุณาตรวจสอบอีกครั้ง",
@@ -73,19 +87,63 @@ export async function submitContactRequest(
       const person = decrypt<Person>(registration.draftEncrypted);
       if (person.phone !== decrypt<string>(identity.verifiedPhone))
         throw new AppError(422, "เบอร์โทรศัพท์ไม่ตรงกับเบอร์ที่ยืนยัน");
+      if (
+        (person.intakeVersion === 2 || input.noticeVersion) &&
+        input.noticeVersion !== PRIVACY_VERSION
+      )
+        throw new AppError(
+          409,
+          "กรุณารับทราบประกาศฉบับปัจจุบัน",
+          "NOTICE_CHANGED",
+        );
+      const questionnaire = await tx.questionnaire.findFirst({
+        where: {
+          version: registration.questionnaireVersion,
+          status: "published",
+          approvedBy: { not: null },
+        },
+      });
+      if (
+        !questionnaire ||
+        !registration.assessmentEncrypted ||
+        validateAnswers(
+          questionnaire.questions as Question[],
+          decrypt(registration.assessmentEncrypted),
+        ).length
+      )
+        throw new AppError(
+          422,
+          "กรุณาตอบแบบประเมินให้ครบถ้วน",
+          "VALIDATION_ERROR",
+        );
+      const interest = input.interestedPackageId
+        ? await tx.package.findFirst({
+            where: {
+              id: input.interestedPackageId,
+              status: "published",
+              approvedBy: { not: null },
+            },
+            select: { id: true, name: true, version: true },
+          })
+        : null;
+      if (input.interestedPackageId && !interest)
+        throw new AppError(422, "กรุณาเลือกแพ็กเกจที่เผยแพร่แล้ว");
       const request = await tx.contactRequest.create({
         data: {
           reference: "PDH-C-" + token().slice(0, 12).toUpperCase(),
           sessionId,
           registrationId: registration.id,
+          status: "submitted",
+          quoteId: quote?.id,
           payloadEncrypted: encrypt({
             person,
+            interestedPackage: interest,
             answers: registration.assessmentEncrypted
               ? decrypt(registration.assessmentEncrypted)
               : {},
             questionnaireVersion: registration.questionnaireVersion,
-            estimate: quote.snapshot,
-            total: quote.total.toFixed(2),
+            estimate: quote?.snapshot ?? null,
+            total: quote?.total.toFixed(2) ?? null,
           }),
         },
       });
@@ -96,7 +154,7 @@ export async function submitContactRequest(
       await tx.privacyRecord.create({
         data: {
           sessionId,
-          noticeVersion: "draft-v1",
+          noticeVersion: input.noticeVersion ?? "draft-v1",
           purpose: "staff_contact_for_appointment",
         },
       });

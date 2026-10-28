@@ -1,3 +1,4 @@
+import { locales, type Locale } from "./i18n";
 export async function request<T>(path: string, data?: unknown): Promise<T> {
   const response = await fetch("/api/v1/" + path, {
     method: data === undefined ? "GET" : "POST",
@@ -14,16 +15,26 @@ export async function request<T>(path: string, data?: unknown): Promise<T> {
     cache: "no-store",
   });
   const result = await response.json();
-  if (!response.ok)
-    throw new Error(result.error?.message ?? "ไม่สามารถดำเนินการได้");
+  if (!response.ok) {
+    const lang =
+      typeof document !== "undefined" &&
+      locales.includes(document.documentElement.lang as Locale)
+        ? document.documentElement.lang
+        : "th";
+    throw new Error(
+      result.error?.messages?.[lang] ??
+        result.error?.message ??
+        "Unable to complete the request",
+    );
+  }
   return result.data as T;
 }
 export const money = (v: string | number) =>
   new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(
     Number(v),
   );
-export const dateTime = (v: string) =>
-  new Intl.DateTimeFormat("th-TH", {
+export const dateTime = (v: string, locale = "th-TH") =>
+  new Intl.DateTimeFormat(locale, {
     timeZone: "Asia/Bangkok",
     dateStyle: "medium",
     timeStyle: "short",

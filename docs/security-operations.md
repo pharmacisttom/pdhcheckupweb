@@ -24,3 +24,5 @@ Use OWASP ASVS 5.0.0 with a hospital-approved verification scope. The presence o
 - [ ] Backup restoration and rollback drills passed; monitoring and response contacts active.
 
 Incident outline: isolate affected access without destroying evidence, revoke compromised sessions/keys, preserve sanitized audit evidence, involve hospital incident/DPO owners, determine statutory obligations with counsel, recover from verified backups, reconcile financial/appointment changes and record corrective action. No notification deadlines are assumed in code.
+
+Staff account administration, invitation delivery and self-service MFA enrollment are described in USER_MANAGEMENT.md. Require the acting administrator's password and TOTP for administrative mutations, independent identity verification before MFA recovery, and staging verification of the additive migration.

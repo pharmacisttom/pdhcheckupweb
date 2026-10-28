@@ -9,7 +9,7 @@ export default defineConfig({
   use: { baseURL: "http://localhost:3036" },
   webServer: {
     command:
-      "node node_modules/next/dist/bin/next dev --webpack --hostname=localhost --port=3036",
+      "node node_modules/next/dist/bin/next dev --turbopack --hostname=localhost --port=3036",
     url: "http://localhost:3036",
     reuseExistingServer: !process.env.CI,
   },

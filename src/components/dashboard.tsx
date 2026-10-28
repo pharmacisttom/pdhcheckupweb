@@ -1,4 +1,5 @@
 "use client";
+import { ResponsiveTable } from "./responsive-table";
 import { useEffect, useState } from "react";
 import {
   CalendarDays,
@@ -325,7 +326,7 @@ export function Dashboard() {
             </div>
             {data.bookings.length ? (
               <div className="table-wrap">
-                <table>
+                <ResponsiveTable>
                   <thead>
                     <tr>
                       <th>เลขที่นัดหมาย</th>
@@ -350,7 +351,7 @@ export function Dashboard() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </ResponsiveTable>
               </div>
             ) : (
               <EmptyState>ยังไม่มีรายการนัดหมายในช่วงนี้</EmptyState>

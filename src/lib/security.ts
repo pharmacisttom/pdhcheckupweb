@@ -57,7 +57,7 @@ export function equalHash(a: string, b: string) {
   );
 }
 export type Identity = Session & { user: User | null };
-export async function session(required = true): Promise<Identity | null> {
+export async function identitySession(required = true): Promise<Identity | null> {
   const value = (await cookies()).get("pdh_session")?.value;
   const s = value
     ? await db.session.findUnique({
@@ -65,20 +65,29 @@ export async function session(required = true): Promise<Identity | null> {
         include: { user: true },
       })
     : null;
-  if (!s || s.expiresAt <= new Date() || (s.userId && (!s.user?.active || (process.env.NODE_ENV === 'production' && !s.user.mfaSecret)))) {
+  if (!s || s.expiresAt <= new Date() || (s.userId && !s.user?.active)) {
     if (required)
       throw new AppError(401, "กรุณายืนยันตัวตน", "UNAUTHENTICATED");
     return null;
   }
   return s;
 }
-export async function createSession(userId?: string, store: Prisma.TransactionClient = db) {
+export async function session(required = true): Promise<Identity | null> {
+  const s = await identitySession(false);
+  if (!s || s.stage !== 'full' || (s.userId && (!s.user?.mfaSecret || s.user.activationRequired || s.user.mustChangePassword))) {
+    if (required) throw new AppError(401, 'กรุณายืนยันตัวตนให้ครบถ้วน', 'UNAUTHENTICATED');
+    return null;
+  }
+  return s;
+}
+export async function createSession(userId?: string, store: Prisma.TransactionClient = db, stage: 'full' | 'password' | 'mfa' = 'full') {
   const raw = token();
   const s = await store.session.create({
     data: {
       tokenHash: hash(raw),
       userId,
-      expiresAt: new Date(Date.now() + (userId ? 8 : 2) * 3600000),
+      stage,
+      expiresAt: new Date(Date.now() + (stage === 'full' ? (userId ? 8 : 2) * 3600000 : 600000)),
     },
   });
   (await cookies()).set("pdh_session", raw, {
@@ -86,7 +95,7 @@ export async function createSession(userId?: string, store: Prisma.TransactionCl
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: userId ? 28800 : 7200,
+    maxAge: stage === 'full' ? (userId ? 28800 : 7200) : 600,
   });
   return s;
 }
@@ -98,6 +107,7 @@ const permissions: Record<string, string[]> = {
     "checkin:write",
   ],
   manager: [
+    "users:manage",
     "dashboard:read",
     "bookings:read",
     "bookings:write",

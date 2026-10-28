@@ -45,3 +45,9 @@ Source: `src/app`, `src/components`, `src/lib`, `src/server/services` · Schema/
 [สถาปัตยกรรม](docs/architecture.md) · [ERD](docs/database-erd.md) · [สิทธิ์](docs/permissions.md) · [เส้นทาง](docs/routes.md) · [การนำเข้า](docs/import-specification.md) · [การวิเคราะห์ Excel ที่ยังไม่ได้แนบ](docs/excel-source-analysis.md) · [คู่มือผู้ใช้](docs/user-manual-th.md) · [คู่มือเจ้าหน้าที่](docs/admin-manual-th.md) · [แผน deployment](docs/deployment.md) · [สำรอง/กู้คืน](docs/backup-restore.md)
 
 ไม่ deploy อัตโนมัติ ไม่แก้ VPS เดิม ไม่มีข้อมูลติดต่อ/ตราโรงพยาบาลหรือข้อมูลราคาจริงที่สร้างขึ้นเอง ข้อมูล seed เป็นสังเคราะห์และใช้เฉพาะการพัฒนา
+
+## Production synchronization
+
+See [deployment workflow](docs/PRODUCTION_DEPLOYMENT.md), [environment settings](docs/ENVIRONMENT_VARIABLES.md), [MFA enrollment](docs/MFA_SETUP.md), and [verification report](docs/production-sync-report-2026-10-22.md). Production/staging scripts are under deploy/. Existing lowercase docs/architecture.md and docs/backup-restore.md remain canonical on Windows.
+
+Staff account administration and self-service 2FA are documented in [USER_MANAGEMENT.md](docs/USER_MANAGEMENT.md), including the additive migration and restricted enrollment sessions.

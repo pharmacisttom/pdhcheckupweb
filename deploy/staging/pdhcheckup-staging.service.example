@@ -1,0 +1,26 @@
+[Unit]
+Description=PDH Smart Health Check staging
+After=network.target mysql.service
+
+[Service]
+Type=simple
+User=pdhcheckup
+Group=pdhcheckup
+WorkingDirectory=/var/www/pdhcheckup/releases/staging/current/runtime
+EnvironmentFile=/var/www/pdhcheckup/shared/staging/.env
+Environment=NODE_ENV=staging
+Environment=HOSTNAME=127.0.0.1
+Environment=PORT=3037
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/pdhcheckup/releases/staging/current/runtime/.next
+
+[Install]
+WantedBy=multi-user.target
+

@@ -279,7 +279,7 @@ describe.skipIf(!enabled)(
           await db.contactRequest.findUniqueOrThrow({
             where: { id: first.id },
           }),
-        ).toMatchObject({ status: "pending" });
+        ).toMatchObject({ status: "submitted" });
       } finally {
         await setBookingPolicy("policy-test", {
           onlineEnabled: before.onlineEnabled,

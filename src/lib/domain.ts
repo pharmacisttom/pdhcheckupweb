@@ -53,7 +53,55 @@ export const personSchema = z
         return false;
       }
     }, "วันเกิดไม่ถูกต้อง"),
-    phone: z.string().transform(normalizePhone),
+    intakeVersion: z.literal(2).optional(),
+    locale: z.enum(["th", "en", "zh-Hans", "my", "km"]).default("th"),
+    surgeryHistory: z.string().trim().max(2000).optional(),
+    familyNcdEntries: z
+      .array(
+        z.object({
+          relationship: z.enum(["mother", "father", "sibling", "child"]),
+          disease: z.enum([
+            "diabetes",
+            "hypertension",
+            "heart_disease",
+            "stroke",
+            "cancer",
+            "other",
+          ]),
+          note: z.string().trim().max(500).optional(),
+        }),
+      )
+      .max(30)
+      .optional(),
+    sex: z.enum(["male", "female", "other", "unspecified"]).optional(),
+    treatmentRight: z
+      .enum([
+        "universal",
+        "social_security",
+        "civil_servant",
+        "private_insurance",
+        "self_pay",
+        "other",
+        "unknown",
+      ])
+      .optional(),
+    treatmentRightDetails: z.string().trim().max(500).optional(),
+    medicalHistory: z.string().trim().max(2000).optional(),
+    currentMedication: z.string().trim().max(2000).optional(),
+    allergies: z.string().trim().max(1000).optional(),
+    familyNcdStatus: z.enum(["yes", "no", "unknown"]).optional(),
+    familyNcdDetails: z.string().trim().max(2000).optional(),
+    phone: z.string().transform((value, ctx) => {
+      try {
+        return normalizePhone(value);
+      } catch {
+        ctx.addIssue({
+          code: "custom",
+          message: "กรุณาระบุเบอร์มือถือไทยที่ถูกต้อง",
+        });
+        return z.NEVER;
+      }
+    }),
     email: z.union([z.email(), z.literal("")]).optional(),
     documentType: z.enum(["none", "thai_id", "passport"]).default("none"),
     identifier: z.string().max(50).optional(),
@@ -61,6 +109,40 @@ export const personSchema = z
     contactChannel: z.enum(["sms", "email"]).default("sms"),
   })
   .superRefine((p, ctx) => {
+    if (p.intakeVersion === 2) {
+      for (const field of [
+        "sex",
+        "treatmentRight",
+        "medicalHistory",
+        "surgeryHistory",
+        "currentMedication",
+        "allergies",
+        "familyNcdStatus",
+      ] as const) {
+        if (!p[field]?.trim())
+          ctx.addIssue({
+            code: "custom",
+            path: [field],
+            message: "กรุณาระบุข้อมูล หรือระบุ ไม่มี / ไม่ทราบ",
+          });
+      }
+      if (p.familyNcdStatus === "yes" && !p.familyNcdEntries?.length)
+        ctx.addIssue({
+          code: "custom",
+          path: ["familyNcdEntries"],
+          message: "กรุณาระบุความสัมพันธ์และโรคโดยไม่ระบุชื่อญาติ",
+        });
+    }
+    if (
+      p.familyNcdStatus === "yes" &&
+      !p.familyNcdDetails?.trim() &&
+      !p.familyNcdEntries?.length
+    )
+      ctx.addIssue({
+        code: "custom",
+        path: ["familyNcdDetails"],
+        message: "กรุณาระบุญาติและโรค NCD",
+      });
     if (p.documentType === "thai_id" && !validThaiId(p.identifier ?? ""))
       ctx.addIssue({
         code: "custom",
@@ -85,6 +167,12 @@ export const assessmentSchema = z.record(
   ]),
 );
 export type Question = {
+  translations?: Partial<
+    Record<
+      "th" | "en" | "zh-Hans" | "my" | "km",
+      { label: string; options?: Record<string, string> }
+    >
+  >;
   id: string;
   label: string;
   type: "single" | "multiple" | "numeric" | "text";
@@ -95,6 +183,7 @@ export type Question = {
   showIf?: { field: string; equals: string | boolean };
 };
 export type RiskRule = {
+  translations?: Partial<Record<"th" | "en" | "zh-Hans" | "my" | "km", string>>;
   id: string;
   field: string;
   equals: string | boolean;
@@ -131,11 +220,15 @@ export function validateAnswers(
         (q.max !== undefined && v > q.max))
     )
       errors.push(q.label + ": ค่าต้องอยู่ในช่วงที่กำหนด");
-    if (q.type === "single" && (typeof v !== 'string' || !q.options?.includes(v)))
+    if (
+      q.type === "single" &&
+      (typeof v !== "string" || !q.options?.includes(v))
+    )
       errors.push(q.label + ": ตัวเลือกไม่ถูกต้อง");
     if (
       q.type === "multiple" &&
-      (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !q.options?.includes(x)))
+      (!Array.isArray(v) ||
+        v.some((x) => typeof x !== "string" || !q.options?.includes(x)))
     )
       errors.push(q.label + ": ตัวเลือกไม่ถูกต้อง");
     if (q.type === "text" && typeof v !== "string")
@@ -149,12 +242,17 @@ export function evaluateRules(
   version: number,
 ) {
   return rules
-    .filter((r) => Array.isArray(answers[r.field]) ? (answers[r.field] as unknown[]).includes(r.equals) : answers[r.field] === r.equals)
+    .filter((r) =>
+      Array.isArray(answers[r.field])
+        ? (answers[r.field] as unknown[]).includes(r.equals)
+        : answers[r.field] === r.equals,
+    )
     .map((r) => ({
       ruleId: r.id,
       version,
       decision: r.decision,
       reason: r.reason,
+      translations: r.translations,
       serviceCode: r.serviceCode,
     }));
 }

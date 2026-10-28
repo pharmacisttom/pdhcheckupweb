@@ -1,4 +1,5 @@
 "use client";
+import { useLanguage } from "@/components/language-provider";
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, ShieldCheck } from "lucide-react";
 import { useForm, useWatch } from "react-hook-form";
@@ -13,10 +14,22 @@ import {
 import { EmptyState, ErrorState, Loading, PackageCard, PageHeader } from "./ui";
 import type { Question } from "@/lib/domain";
 import { AppointmentCalendar } from "./calendar";
+import { PRIVACY_VERSION } from "@/lib/intake";
 type FormPerson = {
+  intakeVersion?: 2;
+  surgeryHistory: string;
+  familyNcdEntries: { relationship: string; disease: string; note?: string }[];
   firstName: string;
   lastName: string;
   birthdate: string;
+  sex: string;
+  treatmentRight: string;
+  treatmentRightDetails: string;
+  medicalHistory: string;
+  currentMedication: string;
+  allergies: string;
+  familyNcdStatus: string;
+  familyNcdDetails: string;
   phone: string;
   email: string;
   documentType: "none" | "thai_id" | "passport";
@@ -32,7 +45,13 @@ type Quote = {
   total: string;
   lines: { id: string; name: string; amount: string }[];
 };
-type Slot = { id: string; startsAt: string; endsAt: string; available: number };
+type Slot = {
+  day?: string;
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  available: number;
+};
 const steps = [
   "ข้อมูลส่วนตัว",
   "ประเมินสุขภาพ",
@@ -42,7 +61,11 @@ const steps = [
   "ตรวจสอบและยืนยัน",
 ];
 export function RegistrationWizard() {
+  const { t, locale } = useLanguage();
+
   const router = useRouter();
+  const [privacyRead, setPrivacyRead] = useState(false);
+  const [staffAdvice, setStaffAdvice] = useState(false);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -84,6 +107,7 @@ export function RegistrationWizard() {
     formState: { errors },
   } = useForm<FormPerson>({
     defaultValues: {
+      intakeVersion: 2,
       documentType: "none",
       contactChannel: "sms",
       email: "",
@@ -91,9 +115,32 @@ export function RegistrationWizard() {
       assistance: "",
     },
   });
+  const birthdate = useWatch({ control, name: "birthdate" });
+  const familyNcdStatus = useWatch({ control, name: "familyNcdStatus" });
+  const birth = birthdate ? new Date(birthdate + "T00:00:00") : null;
+  const today = new Date();
+  const age =
+    birth && Number.isFinite(birth.getTime()) && birth <= today
+      ? today.getFullYear() -
+        birth.getFullYear() -
+        (today.getMonth() < birth.getMonth() ||
+        (today.getMonth() === birth.getMonth() &&
+          today.getDate() < birth.getDate())
+          ? 1
+          : 0)
+      : null;
   const documentType = useWatch({ control, name: "documentType" });
+  const contactMode = staffAdvice || !!reviewNotice || !policy.onlineEnabled;
   const selected = packages.find((p) => p.id === packageId);
-  const days = [...new Set(slots.map((s) => s.startsAt.slice(0, 10)))];
+  const slotDay = (s: Slot) =>
+    s.day ??
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Bangkok",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(s.startsAt));
+  const days = [...new Set(slots.map(slotDay))];
   useEffect(() => {
     idempotency.current = crypto.randomUUID();
     request<{ verified: boolean }>("auth/guest", {})
@@ -141,13 +188,18 @@ export function RegistrationWizard() {
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "เกิดข้อผิดพลาด");
+      setError(e instanceof Error ? e.message : t("เกิดข้อผิดพลาด"));
     } finally {
       setBusy(false);
     }
   }
   async function requestOtp() {
     await run(async () => {
+      const phone = getValues("phone")
+        .replace(/[\s()-]/g, "")
+        .replace(/^\+66/, "0");
+      if (!/^0[689]\d{8}$/.test(phone))
+        throw new Error(t("กรุณาระบุเบอร์มือถือไทยที่ถูกต้อง"));
       const r = await request<{ verificationId: string; testCode?: string }>(
         "otp/request",
         { phone: getValues("phone") },
@@ -167,16 +219,31 @@ export function RegistrationWizard() {
     await run(async () => {
       if (step === 0) {
         if (!verified)
-          throw new Error("กรุณายืนยันเบอร์โทรด้วย OTP ก่อนดำเนินการต่อ");
+          throw new Error(t("กรุณายืนยันเบอร์โทรด้วย OTP ก่อนดำเนินการต่อ"));
         setStep(1);
       }
       if (step === 1) {
         const r = await request<{
           id: string;
-          decisions: { decision: string; reason: string }[];
+          decisions: {
+            decision: string;
+            reason: string;
+            translations?: Record<string, string>;
+          }[];
         }>("registrations", {
           id: registrationId || undefined,
-          person: getValues(),
+          person: {
+            ...getValues(),
+            locale,
+            familyNcdEntries:
+              getValues("familyNcdStatus") === "yes"
+                ? getValues("familyNcdEntries")
+                : [],
+            familyNcdDetails:
+              getValues("familyNcdStatus") === "yes"
+                ? getValues("familyNcdDetails")
+                : "",
+          },
           answers,
           questionnaireVersion: questionnaire?.version,
         });
@@ -188,16 +255,21 @@ export function RegistrationWizard() {
             "safety_warning",
           ].includes(d.decision),
         );
-        if (warnings.length && policy.onlineEnabled)
-          throw new Error(
-            warnings.map((w) => w.reason).join(" • ") +
-              " กรุณาติดต่อเจ้าหน้าที่ก่อนจอง",
-          );
-        setReviewNotice(warnings.map((w) => w.reason).join(" • "));
+        setReviewNotice(
+          warnings
+            .map((w) => w.translations?.[locale] ?? t(w.reason))
+            .join(" • "),
+        );
         setStep(2);
       }
       if (step === 2) {
-        if (!selected) throw new Error("กรุณาเลือกแพ็กเกจ");
+        if (contactMode || !selected) {
+          setStaffAdvice(true);
+          setQuote(null);
+          setAcknowledged(false);
+          setStep(5);
+          return;
+        }
         setStep(3);
       }
       if (step === 3) {
@@ -209,7 +281,7 @@ export function RegistrationWizard() {
         const mode = await request<typeof policy>("booking-policy");
         setPolicy(mode);
         setAcknowledged(false);
-        setStep(mode.onlineEnabled ? 4 : 5);
+        setStep(mode.onlineEnabled && !contactMode ? 4 : 5);
       }
       if (step === 4) {
         const mode = await request<typeof policy>("booking-policy");
@@ -220,7 +292,7 @@ export function RegistrationWizard() {
           setStep(5);
           return;
         }
-        if (!slotId) throw new Error("กรุณาเลือกวันและเวลา");
+        if (!slotId) throw new Error(t("กรุณาเลือกวันและเวลา"));
         const h = await request<{ id: string; expiresAt: string }>("holds", {
           slotId,
         });
@@ -229,27 +301,32 @@ export function RegistrationWizard() {
         setStep(5);
       }
       if (step === 5) {
-        if (!acknowledged) throw new Error("กรุณารับทราบข้อมูลก่อนยืนยัน");
+        if (!acknowledged) throw new Error(t("กรุณารับทราบข้อมูลก่อนยืนยัน"));
         const mode = await request<typeof policy>("booking-policy");
-        if (mode.onlineEnabled !== policy.onlineEnabled) {
+        if (mode.onlineEnabled !== policy.onlineEnabled && !contactMode) {
           setPolicy(mode);
           setHold(null);
           setAcknowledged(false);
           setStep(3);
           throw new Error(
-            "รูปแบบการรับนัดเปลี่ยนแปลง กรุณาตรวจสอบและดำเนินการต่ออีกครั้ง",
+            t("รูปแบบการรับนัดเปลี่ยนแปลง กรุณาตรวจสอบและดำเนินการต่ออีกครั้ง"),
           );
         }
-        if (!mode.onlineEnabled) {
-          if (!quote) throw new Error("กรุณาตรวจสอบราคาใหม่");
+        if (!mode.onlineEnabled || contactMode) {
           const result = await request<{ reference: string }>(
             "contact-requests",
-            { registrationId, quoteId: quote.id, privacyAcknowledged: true },
+            {
+              registrationId,
+              quoteId: quote?.id,
+              interestedPackageId: selected?.id,
+              privacyAcknowledged: true,
+              noticeVersion: PRIVACY_VERSION,
+            },
           );
           setContactReference(result.reference);
           return;
         }
-        if (!quote || !hold) throw new Error("กรุณาเลือกราคาและวันนัดใหม่");
+        if (!quote || !hold) throw new Error(t("กรุณาเลือกราคาและวันนัดใหม่"));
         await request("bookings", {
           registrationId,
           holdId: hold.id,
@@ -257,6 +334,7 @@ export function RegistrationWizard() {
           fingerprint: quote.fingerprint,
           idempotencyKey: idempotency.current,
           privacyAcknowledged: true,
+          noticeVersion: PRIVACY_VERSION,
         });
         router.push("/bookings?confirmed=1");
       }
@@ -268,17 +346,18 @@ export function RegistrationWizard() {
     return (
       <div className="registration-container">
         <PageHeader
-          title="ส่งข้อมูลให้เจ้าหน้าที่แล้ว"
-          description="เจ้าหน้าที่จะติดต่อกลับเพื่อนัดรับบริการ"
+          title={t("ส่งข้อมูลให้เจ้าหน้าที่แล้ว")}
+          description={t("เจ้าหน้าที่จะติดต่อกลับเพื่อนัดรับบริการ")}
         />
         <section className="card">
           <h2>{contactReference}</h2>
           <p>
-            รายการนี้เป็นคำขอให้ติดต่อกลับ ยังไม่ใช่การยืนยันวันนัดหมาย
-            กรุณารอเจ้าหน้าที่ติดต่อทางเบอร์ที่ยืนยันไว้
+            {t(
+              "รายการนี้เป็นคำขอให้ติดต่อกลับ ยังไม่ใช่การยืนยันวันนัดหมาย กรุณารอเจ้าหน้าที่ติดต่อทางเบอร์ที่ยืนยันไว้",
+            )}
           </p>
           <a className="button" href="/bookings">
-            ตรวจสอบรายการของฉัน
+            {t("ตรวจสอบรายการของฉัน")}
           </a>
         </section>
       </div>
@@ -287,51 +366,99 @@ export function RegistrationWizard() {
     return (
       <div className="registration-container">
         <PageHeader
-          title="ลงทะเบียนตรวจสุขภาพ"
-          description="เตรียมข้อมูลเพื่อการดูแลที่เหมาะสม"
+          title={t("ลงทะเบียนตรวจสุขภาพ")}
+          description={t("เตรียมข้อมูลเพื่อการดูแลที่เหมาะสม")}
         />
         {error ? <ErrorState message={error} /> : <Loading />}
+      </div>
+    );
+  if (!privacyRead)
+    return (
+      <div className="registration-container">
+        <PageHeader
+          title={t("ข้อมูลความเป็นส่วนตัว")}
+          description={t("อ่านก่อนกรอกข้อมูลส่วนตัวและสุขภาพ")}
+        />
+        <section className="card">
+          <h2>{t("วัตถุประสงค์และการใช้ข้อมูล")}</h2>
+          <p>
+            {t(
+              "โรงพยาบาลปลวกแดงเก็บข้อมูลส่วนตัว ข้อมูลติดต่อ สิทธิการรักษา ประวัติสุขภาพและแบบประเมิน เพื่อให้เจ้าหน้าที่ตรวจข้อมูล แนะนำบริการ และติดต่อนัดหมาย โดยจำกัดการเข้าถึงตามหน้าที่และจัดเก็บเข้ารหัส",
+            )}
+          </p>
+          <p>
+            {t(
+              "การส่งความสนใจยังไม่ใช่การยืนยันนัด ราคา หรือสิทธิการเบิกจ่าย คุณสามารถติดต่อโรงพยาบาลเพื่อขอเข้าถึง แก้ไข หรือดำเนินการเกี่ยวกับข้อมูลตามประกาศความเป็นส่วนตัว",
+            )}
+          </p>
+          <a href="/privacy" target="_blank" rel="noreferrer">
+            {t("อ่านประกาศความเป็นส่วนตัวฉบับเต็ม")}
+          </a>
+          <p>
+            {t("เวอร์ชัน")}
+            {PRIVACY_VERSION}
+          </p>
+          <button
+            type="button"
+            className="button"
+            onClick={() => setPrivacyRead(true)}
+          >
+            {t("รับทราบและเริ่มกรอกข้อมูล")}
+          </button>
+        </section>
       </div>
     );
   return (
     <div className="registration-container">
       <PageHeader
         eyebrow="HEALTH CHECK REGISTRATION"
-        title="ลงทะเบียนตรวจสุขภาพ"
-        description="กรอกข้อมูลให้ครบถ้วน เพื่อเตรียมพร้อมก่อนเข้ารับบริการ"
+        title={t("ลงทะเบียนตรวจสุขภาพ")}
+        description={t(
+          "กรอกข้อมูลให้ครบถ้วน เพื่อเตรียมพร้อมก่อนเข้ารับบริการ",
+        )}
       />
-      <div className="stepper" aria-label="ขั้นตอนลงทะเบียน">
+      <div className="stepper" aria-label={t("ขั้นตอนลงทะเบียน")}>
         {steps.map((label, i) => (
           <button
             key={label}
             type="button"
             className={i === step ? "current" : i < step ? "done" : ""}
-            disabled={i > step || busy || (!policy.onlineEnabled && i === 4)}
+            disabled={i > step || busy || (contactMode && i === 4)}
             onClick={() => setStep(i)}
             aria-current={i === step ? "step" : undefined}
           >
             <span>{i < step ? <Check size={13} /> : i + 1}</span>
-            {i === 4 && !policy.onlineEnabled ? "เจ้าหน้าที่นัดให้" : label}
+            {i === 4 && contactMode ? t("เจ้าหน้าที่นัดให้") : t(label)}
           </button>
         ))}
       </div>
       <div className="wizard-grid">
         <section className="card">
           <h2 ref={heading} tabIndex={-1}>
-            {step + 1}. {steps[step]}
+            {step + 1}. {t(steps[step])}
           </h2>
           {error && <ErrorState message={error} />}
+          {Object.keys(errors).length > 0 && (
+            <div className="alert" role="alert">
+              {t(
+                "กรุณาตรวจสอบช่องข้อมูลที่จำเป็นให้ครบถ้วน และไม่เว้นว่างเฉพาะช่องว่าง",
+              )}
+            </div>
+          )}
           {!policy.onlineEnabled && (
             <div className="alert" role="status">
               {policy.message}
               <p>
-                ส่งข้อมูลให้เจ้าหน้าที่ติดต่อกลับได้ โดยไม่ต้องเลือกวันและเวลา
+                {t(
+                  "ส่งข้อมูลให้เจ้าหน้าที่ติดต่อกลับได้ โดยไม่ต้องเลือกวันและเวลา",
+                )}
               </p>
             </div>
           )}
-          {reviewNotice && !policy.onlineEnabled && (
+          {reviewNotice && (
             <div className="alert">
-              ข้อมูลที่ต้องให้เจ้าหน้าที่ประเมิน: {reviewNotice}
+              {t("ข้อมูลที่ต้องให้เจ้าหน้าที่ประเมิน:")}
+              {reviewNotice}
             </div>
           )}
           <form
@@ -341,16 +468,18 @@ export function RegistrationWizard() {
             {step === 0 && (
               <>
                 <p>
-                  ข้อมูลของคุณจะถูกใช้เพื่อเตรียมบริการและการติดต่อเรื่องนัดหมาย
+                  {t(
+                    "ข้อมูลของคุณจะถูกใช้เพื่อเตรียมบริการและการติดต่อเรื่องนัดหมาย",
+                  )}
                 </p>
                 <div className="form-grid">
                   <div className="field">
-                    <label htmlFor="firstName">ชื่อ *</label>
+                    <label htmlFor="firstName">{t("ชื่อ *")}</label>
                     <input
                       id="firstName"
                       autoComplete="given-name"
                       {...register("firstName", {
-                        required: "กรุณาระบุชื่อ",
+                        required: t("กรุณาระบุชื่อ"),
                         maxLength: 100,
                       })}
                     />
@@ -361,12 +490,12 @@ export function RegistrationWizard() {
                     )}
                   </div>
                   <div className="field">
-                    <label htmlFor="lastName">นามสกุล *</label>
+                    <label htmlFor="lastName">{t("นามสกุล *")}</label>
                     <input
                       id="lastName"
                       autoComplete="family-name"
                       {...register("lastName", {
-                        required: "กรุณาระบุนามสกุล",
+                        required: t("กรุณาระบุนามสกุล"),
                         maxLength: 100,
                       })}
                     />
@@ -377,19 +506,86 @@ export function RegistrationWizard() {
                     )}
                   </div>
                   <div className="field">
-                    <label htmlFor="birthdate">วันเกิด (ค.ศ.) *</label>
+                    <label htmlFor="birthdate">{t("วันเกิด (ค.ศ.) *")}</label>
                     <input
                       id="birthdate"
                       type="date"
                       max={new Date().toISOString().slice(0, 10)}
                       {...register("birthdate", {
-                        required: "กรุณาระบุวันเกิด",
+                        required: t("กรุณาระบุวันเกิด"),
                       })}
                     />
-                    <small>กรอกปีคริสต์ศักราช เช่น พ.ศ. 2533 = ค.ศ. 1990</small>
+                    {age !== null && (
+                      <p role="status">
+                        {t("อายุ")}
+                        {age}
+                        {t("ปี")}
+                      </p>
+                    )}
+                    <small>
+                      {t("กรอกปีคริสต์ศักราช เช่น พ.ศ. 2533 = ค.ศ. 1990")}
+                    </small>
                   </div>
                   <div className="field">
-                    <label htmlFor="phone">โทรศัพท์มือถือ *</label>
+                    <label htmlFor="sex">{t("เพศ *")}</label>
+                    <select
+                      id="sex"
+                      {...register("sex", { required: t("กรุณาระบุเพศ") })}
+                      required
+                    >
+                      <option value="">{t("เลือกเพศ")}</option>
+                      <option value="male">{t("ชาย")}</option>
+                      <option value="female">{t("หญิง")}</option>
+                      <option value="other">{t("อื่น ๆ")}</option>
+                      <option value="unspecified">{t("ไม่ประสงค์ระบุ")}</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="treatmentRight">
+                      {t("สิทธิการรักษา *")}
+                    </label>
+                    <select
+                      id="treatmentRight"
+                      {...register("treatmentRight", {
+                        required: t("กรุณาระบุสิทธิการรักษา"),
+                      })}
+                      required
+                    >
+                      <option value="">{t("เลือกสิทธิการรักษา")}</option>
+                      <option value="universal">
+                        {t("บัตรทอง / หลักประกันสุขภาพถ้วนหน้า")}
+                      </option>
+                      <option value="social_security">
+                        {t("ประกันสังคม")}
+                      </option>
+                      <option value="civil_servant">
+                        {t("สวัสดิการข้าราชการ / รัฐวิสาหกิจ")}
+                      </option>
+                      <option value="private_insurance">
+                        {t("ประกันสุขภาพเอกชน")}
+                      </option>
+                      <option value="self_pay">{t("ชำระเงินเอง")}</option>
+                      <option value="other">{t("อื่น ๆ")}</option>
+                      <option value="unknown">{t("ไม่ทราบสิทธิ")}</option>
+                    </select>
+                    <small>
+                      {t("เจ้าหน้าที่จะตรวจสอบสิทธิและค่าใช้จ่ายก่อนรับบริการ")}
+                    </small>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="treatmentRightDetails">
+                      {t(
+                        "โรงพยาบาลตามสิทธิ / บริษัทประกัน / รายละเอียดเพิ่มเติม",
+                      )}
+                    </label>
+                    <input
+                      id="treatmentRightDetails"
+                      maxLength={500}
+                      {...register("treatmentRightDetails")}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="phone">{t("โทรศัพท์มือถือ *")}</label>
                     <input
                       id="phone"
                       type="tel"
@@ -398,6 +594,9 @@ export function RegistrationWizard() {
                       onChange={(e) => {
                         register("phone").onChange(e);
                         setVerified(false);
+                        setVerificationId("");
+                        setOtp("");
+                        setTestCode("");
                       }}
                     />
                   </div>
@@ -408,12 +607,12 @@ export function RegistrationWizard() {
                       disabled={busy || verified}
                       onClick={requestOtp}
                     >
-                      {verified ? "ยืนยันเบอร์โทรแล้ว ✓" : "ขอรหัส OTP"}
+                      {verified ? t("ยืนยันเบอร์โทรแล้ว ✓") : t("ขอรหัส OTP")}
                     </button>
                     {verificationId && !verified && (
                       <div className="toolbar" style={{ marginTop: 12 }}>
                         <label className="field">
-                          รหัส OTP
+                          {t("รหัส OTP")}
                           <input
                             inputMode="numeric"
                             maxLength={6}
@@ -427,18 +626,20 @@ export function RegistrationWizard() {
                           onClick={verifyOtp}
                           disabled={busy}
                         >
-                          ยืนยันรหัส
+                          {t("ยืนยันรหัส")}
                         </button>
                       </div>
                     )}
                     {testCode && (
                       <div className="alert">
-                        โหมดทดสอบ: {testCode} — ไม่มีการส่ง SMS จริง
+                        {t("โหมดทดสอบ:")}
+                        {testCode}
+                        {t("— ไม่มีการส่ง SMS จริง")}
                       </div>
                     )}
                   </div>
                   <div className="field">
-                    <label htmlFor="email">อีเมล (ไม่บังคับ)</label>
+                    <label htmlFor="email">{t("อีเมล (ไม่บังคับ)")}</label>
                     <input
                       id="email"
                       type="email"
@@ -447,18 +648,20 @@ export function RegistrationWizard() {
                     />
                   </div>
                   <div className="field">
-                    <label htmlFor="documentType">เอกสารระบุตัวตน</label>
+                    <label htmlFor="documentType">{t("เอกสารระบุตัวตน")}</label>
                     <select id="documentType" {...register("documentType")}>
                       <option value="none">
-                        ยังไม่ระบุ / แสดงในวันรับบริการ
+                        {t("ยังไม่ระบุ / แสดงในวันรับบริการ")}
                       </option>
-                      <option value="thai_id">บัตรประจำตัวประชาชน</option>
-                      <option value="passport">หนังสือเดินทาง</option>
+                      <option value="thai_id">
+                        {t("บัตรประจำตัวประชาชน")}
+                      </option>
+                      <option value="passport">{t("หนังสือเดินทาง")}</option>
                     </select>
                   </div>
                   {documentType !== "none" && (
                     <div className="field full">
-                      <label htmlFor="identifier">เลขเอกสาร</label>
+                      <label htmlFor="identifier">{t("เลขเอกสาร")}</label>
                       <input
                         id="identifier"
                         {...register("identifier")}
@@ -468,7 +671,7 @@ export function RegistrationWizard() {
                   )}
                   <div className="field full">
                     <label htmlFor="assistance">
-                      ความช่วยเหลือหรือสิ่งอำนวยความสะดวกที่ต้องการ
+                      {t("ความช่วยเหลือหรือสิ่งอำนวยความสะดวกที่ต้องการ")}
                     </label>
                     <textarea
                       id="assistance"
@@ -482,9 +685,94 @@ export function RegistrationWizard() {
             {step === 1 && (
               <div className="stack">
                 <p>
-                  แบบประเมินฉบับที่ {questionnaire?.version} •
-                  คำตอบใช้ประกอบการดูแล ไม่ใช่การวินิจฉัยโรค
+                  {t("แบบประเมินฉบับที่")}
+                  {questionnaire?.version}
+                  {t("• คำตอบใช้ประกอบการดูแล ไม่ใช่การวินิจฉัยโรค")}
                 </p>
+                <fieldset className="stack">
+                  <legend>{t("ประวัติสุขภาพและครอบครัว")}</legend>
+                  <p>
+                    {t(
+                      "ระบุประวัติที่ทราบ หากไม่มีให้ระบุ “ไม่มี” หากไม่ทราบให้ระบุ “ไม่ทราบ”",
+                    )}
+                  </p>
+                  {(
+                    [
+                      [
+                        "medicalHistory",
+                        t("โรคประจำตัว / ประวัติการเจ็บป่วย / การผ่าตัด"),
+                        2000,
+                      ],
+                      [
+                        "currentMedication",
+                        t("ยาหรืออาหารเสริมที่ใช้อยู่"),
+                        2000,
+                      ],
+                      [
+                        "allergies",
+                        t("ประวัติแพ้ยา / อาหาร / สารอื่น ๆ"),
+                        1000,
+                      ],
+                    ] as const
+                  ).map(([name, label, maxLength]) => (
+                    <div className="field" key={name}>
+                      <label htmlFor={name}>{t(label)} *</label>
+                      <textarea
+                        id={name}
+                        maxLength={maxLength}
+                        required
+                        {...register(name, {
+                          required: t("กรุณาระบุข้อมูล"),
+                          validate: (value) =>
+                            !!value?.trim() || t("กรุณาระบุข้อมูล"),
+                        })}
+                      />
+                    </div>
+                  ))}
+                  <div className="field">
+                    <label htmlFor="familyNcdStatus">
+                      {t("ญาติสายตรงมีประวัติโรค NCD หรือไม่ *")}
+                    </label>
+                    <small>
+                      {t(
+                        "เช่น พ่อ แม่ พี่น้องร่วมบิดามารดา หรือลูก ที่มีโรคเบาหวาน ความดันโลหิตสูง โรคหัวใจ หรือโรคหลอดเลือดสมอง",
+                      )}
+                    </small>
+                    <select
+                      id="familyNcdStatus"
+                      required
+                      {...register("familyNcdStatus", {
+                        required: t("กรุณาระบุประวัติครอบครัว"),
+                      })}
+                    >
+                      <option value="">{t("เลือกคำตอบ")}</option>
+                      <option value="yes">{t("มี")}</option>
+                      <option value="no">{t("ไม่มีประวัติที่ทราบ")}</option>
+                      <option value="unknown">{t("ไม่ทราบ")}</option>
+                    </select>
+                  </div>
+                  {familyNcdStatus === "yes" && (
+                    <div className="field">
+                      <label htmlFor="familyNcdDetails">
+                        {t("ความสัมพันธ์และโรคของญาติ *")}
+                      </label>
+                      <textarea
+                        id="familyNcdDetails"
+                        maxLength={2000}
+                        placeholder={t(
+                          "เช่น แม่เป็นเบาหวาน พ่อเป็นความดันโลหิตสูง (ไม่ต้องระบุชื่อญาติ)",
+                        )}
+                        {...register("familyNcdDetails", {
+                          validate: (value) =>
+                            getValues("familyNcdStatus") !== "yes" ||
+                            !!getValues("familyNcdEntries")?.length ||
+                            !!value?.trim() ||
+                            t("กรุณาระบุญาติและโรค"),
+                        })}
+                      />
+                    </div>
+                  )}
+                </fieldset>
                 {questionnaire?.questions
                   .filter(
                     (q) =>
@@ -493,7 +781,7 @@ export function RegistrationWizard() {
                   .map((q) => (
                     <div className="field" key={q.id}>
                       <label htmlFor={"q-" + q.id}>
-                        {q.label}
+                        {q.translations?.[locale]?.label ?? t(q.label)}
                         {q.required ? " *" : ""}
                       </label>
                       {q.type === "single" ? (
@@ -503,9 +791,11 @@ export function RegistrationWizard() {
                           value={String(answers[q.id] ?? "")}
                           onChange={(e) => updateAnswer(q.id, e.target.value)}
                         >
-                          <option value="">เลือกคำตอบ</option>
+                          <option value="">{t("เลือกคำตอบ")}</option>
                           {q.options?.map((o) => (
-                            <option key={o}>{o}</option>
+                            <option key={o} value={o}>
+                              {q.translations?.[locale]?.options?.[o] ?? t(o)}
+                            </option>
                           ))}
                         </select>
                       ) : q.type === "multiple" ? (
@@ -530,7 +820,7 @@ export function RegistrationWizard() {
                                   );
                                 }}
                               />
-                              {o}
+                              {q.translations?.[locale]?.options?.[o] ?? t(o)}
                             </label>
                           ))}
                         </div>
@@ -557,6 +847,108 @@ export function RegistrationWizard() {
                   ))}
               </div>
             )}
+            {step === 1 && (
+              <>
+                <label className="field">
+                  {t("ประวัติการผ่าตัด (ระบุ ไม่มี / ไม่ทราบ ได้)")}
+                  <textarea
+                    maxLength={2000}
+                    required
+                    {...register("surgeryHistory", { required: true })}
+                  />
+                </label>
+                {familyNcdStatus === "yes" && (
+                  <fieldset>
+                    <legend>
+                      {t("ญาติสายตรง: ระบุความสัมพันธ์และโรค ไม่ต้องระบุชื่อ")}
+                    </legend>
+                    {(getValues("familyNcdEntries") ?? []).map((_, i) => (
+                      <div className="form-grid" key={i}>
+                        <label className="field">
+                          {t("ความสัมพันธ์")}
+                          <select
+                            required
+                            {...register(`familyNcdEntries.${i}.relationship`)}
+                          >
+                            <option value="">{t("เลือกคำตอบ")}</option>
+                            <option value="mother">{t("มารดา")}</option>
+                            <option value="father">{t("บิดา")}</option>
+                            <option value="sibling">{t("พี่น้อง")}</option>
+                            <option value="child">{t("บุตร")}</option>
+                          </select>
+                        </label>
+                        <label className="field">
+                          {t("โรค")}
+                          <select
+                            required
+                            {...register(`familyNcdEntries.${i}.disease`)}
+                          >
+                            <option value="">{t("เลือกคำตอบ")}</option>
+                            <option value="diabetes">{t("เบาหวาน")}</option>
+                            <option value="hypertension">
+                              {t("ความดันโลหิตสูง")}
+                            </option>
+                            <option value="heart_disease">
+                              {t("โรคหัวใจ")}
+                            </option>
+                            <option value="stroke">
+                              {t("โรคหลอดเลือดสมอง")}
+                            </option>
+                            <option value="cancer">{t("มะเร็ง")}</option>
+                            <option value="other">{t("อื่น ๆ")}</option>
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          className="button secondary"
+                          onClick={() => {
+                            const values = getValues();
+                            reset({
+                              ...values,
+                              familyNcdEntries: (
+                                values.familyNcdEntries ?? []
+                              ).filter((_, index) => index !== i),
+                            });
+                          }}
+                        >
+                          {t("ลบรายการญาติ")}
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="button secondary"
+                      onClick={() => {
+                        const values = getValues();
+                        reset({
+                          ...values,
+                          familyNcdEntries: [
+                            ...(values.familyNcdEntries ?? []),
+                            { relationship: "", disease: "" },
+                          ],
+                        });
+                      }}
+                    >
+                      {t("เพิ่มประวัติญาติสายตรง")}
+                    </button>
+                  </fieldset>
+                )}
+              </>
+            )}
+            {step === 2 && (
+              <label className="check-label">
+                <input
+                  type="checkbox"
+                  checked={staffAdvice || !!reviewNotice}
+                  disabled={!!reviewNotice}
+                  onChange={(e) => {
+                    setStaffAdvice(e.target.checked);
+                    setQuote(null);
+                  }}
+                />
+                {t("ให้เจ้าหน้าที่แนะนำแพ็กเกจและรายการตรวจ")}
+              </label>
+            )}
             {step === 2 &&
               (packages.length ? (
                 <div className="wizard-packages">
@@ -566,6 +958,7 @@ export function RegistrationWizard() {
                       item={p}
                       selected={p.id === packageId}
                       onSelect={() => {
+                        setStaffAdvice(false);
                         setPackageId(p.id);
                         setAddons([]);
                         setQuote(null);
@@ -574,17 +967,18 @@ export function RegistrationWizard() {
                   ))}
                 </div>
               ) : (
-                <EmptyState>ยังไม่มีแพ็กเกจเปิดให้จอง</EmptyState>
+                <EmptyState>{t("ยังไม่มีแพ็กเกจเปิดให้จอง")}</EmptyState>
               ))}
             {step === 3 && (
               <>
                 <p>
-                  เลือกเฉพาะรายการที่คุณต้องการ
-                  ระบบจะป้องกันการคิดค่าตรวจซ้ำกับแพ็กเกจ
+                  {t(
+                    "เลือกเฉพาะรายการที่คุณต้องการ ระบบจะป้องกันการคิดค่าตรวจซ้ำกับแพ็กเกจ",
+                  )}
                 </p>
                 <input
-                  aria-label="ค้นหารายการตรวจ"
-                  placeholder="ค้นหาชื่อไทย อังกฤษ หรือรหัสบริการ…"
+                  aria-label={t("ค้นหารายการตรวจ")}
+                  placeholder={t("ค้นหาชื่อไทย อังกฤษ หรือรหัสบริการ…")}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -616,14 +1010,14 @@ export function RegistrationWizard() {
                           <small>
                             {s.code} · {s.category}
                             {included
-                              ? " · รวมในแพ็กเกจแล้ว"
+                              ? t(" · รวมในแพ็กเกจแล้ว")
                               : s.requiresReview
-                                ? " · ต้องประเมินโดยแพทย์"
+                                ? t(" · ต้องประเมินโดยแพทย์")
                                 : ""}
                           </small>
                         </span>
                         <strong>
-                          {s.price ? money(s.price) : "ยังไม่มีราคา"}
+                          {s.price ? money(s.price) : t("ยังไม่มีราคา")}
                         </strong>
                       </label>
                     );
@@ -633,13 +1027,14 @@ export function RegistrationWizard() {
             {step === 4 && (
               <>
                 <p>
-                  ระบบสำรองเวลาให้ 5 นาที หลังเลือกและดำเนินการต่อ
-                  รับจองล่วงหน้าอย่างน้อย 24 ชั่วโมง
+                  {t(
+                    "ระบบสำรองเวลาให้ 5 นาที หลังเลือกและดำเนินการต่อ รับจองล่วงหน้าอย่างน้อย 24 ชั่วโมง",
+                  )}
                 </p>
                 {days.length ? (
                   <>
                     <div className="field">
-                      <label htmlFor="appointment-day">วันนัดหมาย</label>
+                      <label htmlFor="appointment-day">{t("วันนัดหมาย")}</label>
                       <select
                         id="appointment-day"
                         value={day}
@@ -648,10 +1043,10 @@ export function RegistrationWizard() {
                           setSlotId("");
                         }}
                       >
-                        <option value="">เลือกวันนัดหมาย</option>
+                        <option value="">{t("เลือกวันนัดหมาย")}</option>
                         {days.map((d) => (
                           <option value={d} key={d}>
-                            {new Intl.DateTimeFormat("th-TH", {
+                            {new Intl.DateTimeFormat(locale, {
                               dateStyle: "long",
                               timeZone: "Asia/Bangkok",
                             }).format(new Date(d + "T00:00:00+07:00"))}
@@ -669,7 +1064,7 @@ export function RegistrationWizard() {
                     />
                     <div className="slot-grid">
                       {slots
-                        .filter((s) => s.startsAt.slice(0, 10) === day)
+                        .filter((s) => slotDay(s) === day)
                         .map((s) => (
                           <button
                             type="button"
@@ -681,56 +1076,142 @@ export function RegistrationWizard() {
                             onClick={() => setSlotId(s.id)}
                           >
                             <b>
-                              {new Date(s.startsAt).toLocaleTimeString(
-                                "th-TH",
-                                {
-                                  timeZone: "Asia/Bangkok",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                },
-                              )}
+                              {new Date(s.startsAt).toLocaleTimeString(locale, {
+                                timeZone: "Asia/Bangkok",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
                             </b>
                             <small>
                               {s.available
-                                ? "ว่าง " + s.available + " ที่"
-                                : "เต็ม / ปิดรับจอง"}
+                                ? t("ว่าง ") + s.available + t(" ที่")
+                                : t("เต็ม / ปิดรับจอง")}
                             </small>
                           </button>
                         ))}
                     </div>
                   </>
                 ) : (
-                  <EmptyState>ยังไม่มีช่วงเวลาที่เปิดรับจอง</EmptyState>
+                  <EmptyState>{t("ยังไม่มีช่วงเวลาที่เปิดรับจอง")}</EmptyState>
                 )}
               </>
             )}
             {step === 5 && (
               <>
-                <p>ตรวจสอบข้อมูลและค่าใช้จ่ายก่อนยืนยันนัดหมาย</p>
+                <p>
+                  {contactMode
+                    ? t("ตรวจสอบข้อมูลก่อนส่งความสนใจ ยังไม่ใช่การยืนยันนัด")
+                    : t("ตรวจสอบข้อมูลและค่าใช้จ่ายก่อนยืนยันนัดหมาย")}
+                </p>
                 <dl className="review-list">
                   <div>
-                    <dt>ผู้รับบริการ</dt>
+                    <dt>{t("ผู้รับบริการ")}</dt>
                     <dd>
                       {getValues("firstName").slice(0, 1)}***{" "}
                       {getValues("lastName").slice(0, 1)}***
                     </dd>
                   </div>
                   <div>
-                    <dt>เบอร์โทรศัพท์</dt>
+                    <dt>{t("เบอร์โทรศัพท์")}</dt>
                     <dd>***-***-{getValues("phone").slice(-4)}</dd>
                   </div>
                   <div>
-                    <dt>แพ็กเกจ</dt>
-                    <dd>{selected?.name}</dd>
+                    <dt>{t("อายุ / เพศ")}</dt>
+                    <dd>
+                      {age ?? "—"}
+                      {t("ปี /")}{" "}
+                      {{
+                        male: t("ชาย"),
+                        female: t("หญิง"),
+                        other: t("อื่น ๆ"),
+                        unspecified: t("ไม่ประสงค์ระบุ"),
+                      }[getValues("sex")] ?? "—"}
+                    </dd>
                   </div>
                   <div>
-                    <dt>วันและเวลา</dt>
+                    <dt>{t("สิทธิการรักษา")}</dt>
                     <dd>
-                      {!policy.onlineEnabled
-                        ? "เจ้าหน้าที่จะติดต่อเพื่อนัดวันและเวลา"
+                      {{
+                        universal: t("บัตรทอง"),
+                        social_security: t("ประกันสังคม"),
+                        civil_servant: t("สวัสดิการข้าราชการ / รัฐวิสาหกิจ"),
+                        private_insurance: t("ประกันสุขภาพเอกชน"),
+                        self_pay: t("ชำระเงินเอง"),
+                        other: t("อื่น ๆ"),
+                        unknown: t("ไม่ทราบสิทธิ"),
+                      }[getValues("treatmentRight")] ?? "—"}{" "}
+                      {getValues("treatmentRightDetails")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t("ประวัติการเจ็บป่วย")}</dt>
+                    <dd>{getValues("medicalHistory")}</dd>
+                  </div>
+                  <div>
+                    <dt>{t("ประวัติการผ่าตัด (ระบุ ไม่มี / ไม่ทราบ ได้)")}</dt>
+                    <dd>{getValues("surgeryHistory") || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>{t("ยาที่ใช้ / ประวัติแพ้")}</dt>
+                    <dd>
+                      {getValues("currentMedication")} /{" "}
+                      {getValues("allergies")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t("ประวัติ NCD ในญาติสายตรง")}</dt>
+                    <dd>
+                      {getValues("familyNcdStatus") === "yes"
+                        ? getValues("familyNcdDetails")
+                        : getValues("familyNcdStatus") === "no"
+                          ? t("ไม่มีประวัติที่ทราบ")
+                          : t("ไม่ทราบ")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t("แพ็กเกจ")}</dt>
+                    <dd>{selected?.name ?? t("ให้เจ้าหน้าที่แนะนำ")}</dd>
+                  </div>
+                  {getValues("familyNcdStatus") === "yes" &&
+                    getValues("familyNcdEntries")?.map((f, i) => (
+                      <div key={i}>
+                        <dt>{t("ประวัติ NCD ในญาติสายตรง")}</dt>
+                        <dd>
+                          {t(
+                            (
+                              {
+                                mother: "มารดา",
+                                father: "บิดา",
+                                sibling: "พี่น้อง",
+                                child: "บุตร",
+                              } as Record<string, string>
+                            )[f.relationship] ?? f.relationship,
+                          )}
+                          :{" "}
+                          {t(
+                            (
+                              {
+                                diabetes: "เบาหวาน",
+                                hypertension: "ความดันโลหิตสูง",
+                                heart_disease: "โรคหัวใจ",
+                                stroke: "โรคหลอดเลือดสมอง",
+                                cancer: "มะเร็ง",
+                                other: "อื่น ๆ",
+                              } as Record<string, string>
+                            )[f.disease] ?? f.disease,
+                          )}
+                        </dd>
+                      </div>
+                    ))}
+                  <div>
+                    <dt>{t("วันและเวลา")}</dt>
+                    <dd>
+                      {contactMode
+                        ? t("เจ้าหน้าที่จะติดต่อเพื่อนัดวันและเวลา")
                         : slots.find((s) => s.id === slotId)
                           ? dateTime(
                               slots.find((s) => s.id === slotId)!.startsAt,
+                              locale,
                             )
                           : "—"}
                     </dd>
@@ -744,28 +1225,36 @@ export function RegistrationWizard() {
                   </div>
                 ))}
                 <div className="summary-line summary-total">
-                  <span>รวมประมาณการ</span>
-                  <span>{money(quote?.total ?? 0)}</span>
+                  <span>{t("รวมประมาณการ")}</span>
+                  <span>
+                    {quote
+                      ? money(quote.total)
+                      : t("รอเจ้าหน้าที่สรุปค่าใช้จ่าย")}
+                  </span>
                 </div>
-                {policy.onlineEnabled && (
+                {!contactMode && (
                   <div className="alert">
-                    เวลาสำรองถึง {hold ? dateTime(hold.expiresAt) : "—"}{" "}
-                    หากราคาหรือความจุเปลี่ยน ระบบจะให้ตรวจสอบใหม่ก่อนยืนยัน
+                    {t("เวลาสำรองถึง")}
+                    {hold ? dateTime(hold.expiresAt, locale) : "—"}{" "}
+                    {t(
+                      "หากราคาหรือความจุเปลี่ยน ระบบจะให้ตรวจสอบใหม่ก่อนยืนยัน",
+                    )}
                   </div>
                 )}
-                <h3>เตรียมตัวก่อนรับบริการ</h3>
+                <h3>{t("เตรียมตัวก่อนรับบริการ")}</h3>
                 <p>{selected?.preparation}</p>
                 {policy.onlineEnabled && (
                   <p>
-                    ยกเลิกด้วยตนเองล่วงหน้าอย่างน้อย 24 ชั่วโมง
-                    กรณีใกล้ถึงเวลานัดให้ติดต่อเจ้าหน้าที่
+                    {t(
+                      "ยกเลิกด้วยตนเองล่วงหน้าอย่างน้อย 24 ชั่วโมง กรณีใกล้ถึงเวลานัดให้ติดต่อเจ้าหน้าที่",
+                    )}
                   </p>
                 )}
-                {!policy.onlineEnabled && (
+                {contactMode && (
                   <p>
-                    การส่งข้อมูลนี้ให้เจ้าหน้าที่เข้าถึงข้อมูลลงทะเบียน
-                    แบบประเมิน และรายการที่สนใจ เพื่อติดต่อกลับและประเมินก่อนนัด
-                    ยังไม่ยืนยันวันเวลา ราคา หรือสิทธิ์เข้ารับบริการ
+                    {t(
+                      "การส่งข้อมูลนี้ให้เจ้าหน้าที่เข้าถึงข้อมูลลงทะเบียน แบบประเมิน และรายการที่สนใจ เพื่อติดต่อกลับและประเมินก่อนนัด ยังไม่ยืนยันวันเวลา ราคา หรือสิทธิ์เข้ารับบริการ",
+                    )}
                   </p>
                 )}
                 <label className="check-label">
@@ -775,16 +1264,16 @@ export function RegistrationWizard() {
                     onChange={(e) => setAcknowledged(e.target.checked)}
                   />
                   <span>
-                    ฉันตรวจสอบข้อมูล ราคา และรับทราบ{" "}
+                    {t("ฉันตรวจสอบข้อมูล ราคา และรับทราบ")}{" "}
                     <a
                       href="/privacy"
                       target="_blank"
                       rel="noreferrer"
                       style={{ textDecoration: "underline" }}
                     >
-                      ข้อมูลความเป็นส่วนตัว
+                      {t("ข้อมูลความเป็นส่วนตัว")}
                     </a>{" "}
-                    แล้ว
+                    {t("แล้ว")}
                   </span>
                 </label>
               </>
@@ -796,26 +1285,24 @@ export function RegistrationWizard() {
                   type="button"
                   disabled={busy}
                   onClick={() => {
-                    setStep((s) =>
-                      s === 5 && !policy.onlineEnabled ? 3 : s - 1,
-                    );
+                    setStep((s) => (s === 5 && contactMode ? 2 : s - 1));
                     setError("");
                   }}
                 >
                   <ArrowLeft size={16} />
-                  ย้อนกลับ
+                  {t("ย้อนกลับ")}
                 </button>
               ) : (
                 <span />
               )}
               <button className="button" type="submit" disabled={busy}>
                 {busy
-                  ? "กำลังดำเนินการ…"
+                  ? t("กำลังดำเนินการ…")
                   : step === 5
-                    ? policy.onlineEnabled
-                      ? "ยืนยันการนัดหมาย"
-                      : "ส่งข้อมูลให้เจ้าหน้าที่ติดต่อกลับ"
-                    : "ดำเนินการต่อ"}
+                    ? !contactMode
+                      ? t("ยืนยันการนัดหมาย")
+                      : t("ส่งข้อมูลให้เจ้าหน้าที่ติดต่อกลับ")
+                    : t("ดำเนินการต่อ")}
                 <ArrowRight size={16} />
               </button>
             </div>
@@ -825,29 +1312,34 @@ export function RegistrationWizard() {
           <div className="icon-box">
             <ShieldCheck />
           </div>
-          <h3 style={{ marginTop: 15 }}>สรุปการลงทะเบียน</h3>
+          <h3 style={{ marginTop: 15 }}>{t("สรุปการลงทะเบียน")}</h3>
           <div className="summary-line">
-            <span>แพ็กเกจ</span>
-            <strong>{selected?.name ?? "ยังไม่ได้เลือก"}</strong>
+            <span>{t("แพ็กเกจ")}</span>
+            <strong>{selected?.name ?? t("ยังไม่ได้เลือก")}</strong>
           </div>
           <div className="summary-line">
-            <span>รายการเพิ่มเติม</span>
-            <span>{addons.length} รายการ</span>
+            <span>{t("รายการเพิ่มเติม")}</span>
+            <span>
+              {addons.length}
+              {t("รายการ")}
+            </span>
           </div>
           {quote && (
             <div className="summary-line summary-total">
-              <span>ประมาณการ</span>
+              <span>{t("ประมาณการ")}</span>
               <span>{money(quote.total)}</span>
             </div>
           )}
           <div className="divider" />
           <p style={{ fontSize: 11 }}>
-            ราคาจากระบบโรงพยาบาล จะตรวจสอบอีกครั้งก่อนยืนยันนัดหมาย
-            ข้อมูลส่วนตัวเก็บในระบบผ่านการเข้ารหัส
+            {t(
+              "ราคาจากระบบโรงพยาบาล จะตรวจสอบอีกครั้งก่อนยืนยันนัดหมาย ข้อมูลส่วนตัวเก็บในระบบผ่านการเข้ารหัส",
+            )}
           </p>
           <small className="muted">
-            ข้อมูลแบบร่างถูกเก็บหลังบันทึกแบบประเมิน โดยไม่เก็บข้อมูลสุขภาพใน
-            localStorage
+            {t(
+              "ข้อมูลแบบร่างถูกเก็บหลังบันทึกแบบประเมิน โดยไม่เก็บข้อมูลสุขภาพใน localStorage",
+            )}
           </small>
         </aside>
       </div>

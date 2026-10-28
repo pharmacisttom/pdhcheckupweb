@@ -47,7 +47,7 @@ export async function changePassword(
       const liveSession = await tx.session.findUnique({
         where: { id: sessionId },
       });
-      if (!user?.active || !liveSession || liveSession.expiresAt <= new Date())
+      if (!user?.active || !liveSession || liveSession.stage !== 'full' || user.activationRequired || user.mustChangePassword || liveSession.expiresAt <= new Date())
         throw new AppError(401, "กรุณาเข้าสู่ระบบใหม่");
       if (!(await bcrypt.compare(input.currentPassword, user.passwordHash)))
         throw new AppError(422, "รหัสผ่านเดิมไม่ถูกต้อง");

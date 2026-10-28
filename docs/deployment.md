@@ -19,3 +19,7 @@ Set `APP_URL` to the exact browser origin: for direct internal access use the ap
 9. Rollback application code to the prior release. Schema rollbacks require a reviewed forward correction or verified restore; never drop data just to match prior code. Price rollback uses a new approved price version.
 
 `ops/nginx.example.conf` and `ops/ecosystem.config.cjs` are templates only. Monitoring should alert on health failure, 5xx/latency, connection pool saturation, deadlocks, disk/backup age, notification backlog and unauthorized attempts. Never log raw request bodies, clinical answers, full identifiers, OTPs or session tokens.
+
+## VPS-specific workflow
+
+The generic plan above is superseded for the supplied VPS by [PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md), [STAGING_DEPLOYMENT.md](STAGING_DEPLOYMENT.md) and [deploy/README.md](../deploy/README.md). Use those systemd/release scripts instead of the historical PM2 template. No remote execution is claimed.

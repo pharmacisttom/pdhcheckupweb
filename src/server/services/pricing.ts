@@ -26,6 +26,7 @@ export async function quoteSnapshot(
   packageId: string,
   addonIds: string[],
   tx: DB = db,
+  reviewed = false,
 ) {
   const pkg = await currentPackage(packageId, tx);
   const now = new Date();
@@ -50,8 +51,9 @@ export async function quoteSnapshot(
   )
     throw new AppError(422, "บริการบางรายการไม่มีราคาที่อนุมัติ");
   if (
-    services.some((s) => s.requiresReview) ||
-    pkg.items.some((i) => i.service.requiresReview)
+    !reviewed &&
+    (services.some((s) => s.requiresReview) ||
+      pkg.items.some((i) => i.service.requiresReview))
   )
     throw new AppError(
       422,
@@ -97,8 +99,9 @@ export async function createQuote(
   sessionId: string,
   packageId: string,
   addonIds: string[],
+  reviewed = false,
 ) {
-  const snapshot = await quoteSnapshot(packageId, addonIds);
+  const snapshot = await quoteSnapshot(packageId, addonIds, db, reviewed);
   const q = await db.quote.create({
     data: {
       sessionId,

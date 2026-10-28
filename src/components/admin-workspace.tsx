@@ -1,5 +1,7 @@
 "use client";
+import { ResponsiveTable } from "./responsive-table";
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Download, Plus, Upload } from "lucide-react";
 import { request, money, dateTime, type PublicService } from "@/lib/client";
 import { EmptyState, ErrorState, Loading, PageHeader, StatusBadge } from "./ui";
@@ -50,7 +52,17 @@ export function AdminWorkspace({ section }: { section: string }) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [services, setServices] = useState<PublicService[]>([]);
+  const [serviceSearch, setServiceSearch] = useState("");
+  const serviceQuery = useQuery({
+    queryKey: ["package-catalog", serviceSearch],
+    queryFn: () =>
+      request<PublicService[]>(
+        "services?q=" + encodeURIComponent(serviceSearch),
+      ),
+    enabled: section === "packages",
+    retry: false,
+  });
+  const services = serviceQuery.data ?? [];
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const title = titles[section];
@@ -65,10 +77,6 @@ export function AdminWorkspace({ section }: { section: string }) {
   }
   useEffect(() => {
     load();
-    if (section === "packages")
-      request<PublicService[]>("services")
-        .then(setServices)
-        .catch((e) => setError(e.message));
   }, [section]); // eslint-disable-line react-hooks/exhaustive-deps
   async function mutate(
     fn: () => Promise<unknown>,
@@ -204,6 +212,16 @@ export function AdminWorkspace({ section }: { section: string }) {
               className="form-grid"
               onSubmit={(e) => {
                 e.preventDefault();
+                if (!selectedServices.length) {
+                  setError(
+                    "กรุณาเลือกรายการตรวจอย่างน้อย 1 รายการก่อนบันทึกแพ็กเกจ",
+                  );
+                  return;
+                }
+                if (serviceQuery.isPending || serviceQuery.isError) {
+                  setError("กรุณารอให้รายการตรวจโหลดสำเร็จก่อนบันทึก");
+                  return;
+                }
                 const f = new FormData(e.currentTarget);
                 mutate(
                   () =>
@@ -274,13 +292,51 @@ export function AdminWorkspace({ section }: { section: string }) {
                 การเตรียมตัว
                 <textarea name="preparation" required maxLength={3000} />
               </label>
-              <div className="full">
-                <h3>รายการตรวจที่รวมในแพ็กเกจ</h3>
+              <fieldset
+                className="full package-services"
+                aria-describedby="package-services-help"
+                disabled={busy}
+              >
+                <legend>รายการตรวจที่รวมในแพ็กเกจ</legend>
+                <p id="package-services-help">
+                  ต้องเลือกอย่างน้อย 1 รายการ และไม่เกิน 100
+                  รายการก่อนบันทึกฉบับร่าง
+                </p>
+                <label className="field">
+                  ค้นหารายการตรวจด้วยชื่อหรือรหัส
+                  <input
+                    type="search"
+                    value={serviceSearch}
+                    maxLength={100}
+                    onChange={(e) => setServiceSearch(e.target.value)}
+                  />
+                </label>
+                <p role="status">
+                  เลือกรายการตรวจแล้ว {selectedServices.length} รายการ
+                </p>
+                {serviceQuery.isPending && <Loading />}
+                {serviceQuery.isError && (
+                  <>
+                    <ErrorState message="โหลดรายการตรวจไม่สำเร็จ กรุณาลองใหม่ หากยังไม่ได้ให้ผู้ดูแลตรวจสอบการเชื่อมต่อฐานข้อมูล" />
+                    <button
+                      type="button"
+                      className="button secondary small"
+                      onClick={() => void serviceQuery.refetch()}
+                    >
+                      ลองโหลดรายการตรวจอีกครั้ง
+                    </button>
+                  </>
+                )}
                 {services.map((s) => (
                   <label className="service-row" key={s.id}>
                     <input
                       type="checkbox"
                       checked={selectedServices.includes(s.id)}
+                      disabled={
+                        serviceQuery.isFetching ||
+                        (!selectedServices.includes(s.id) &&
+                          selectedServices.length >= 100)
+                      }
                       onChange={(e) =>
                         setSelectedServices((v) =>
                           e.target.checked
@@ -294,11 +350,31 @@ export function AdminWorkspace({ section }: { section: string }) {
                     </span>
                   </label>
                 ))}
-                {!services.length && (
-                  <p>ยังไม่มีบริการที่เปิดใช้งาน ต้องนำเข้าราคาบริการก่อน</p>
+                {!serviceQuery.isPending &&
+                  !serviceQuery.isError &&
+                  !services.length && (
+                    <p>
+                      {serviceSearch
+                        ? "ไม่พบรายการตรวจตามคำค้น ลองเปลี่ยนชื่อหรือรหัสที่ค้นหา"
+                        : "ยังไม่มีรายการตรวจที่เปิดใช้งาน กรุณาให้ผู้มีสิทธิ์นำเข้าหรือเปิดใช้งานรายการตรวจที่เมนูห้องปฏิบัติการและราคา ก่อนสร้างแพ็กเกจ"}
+                    </p>
+                  )}
+                {services.length >= 200 && (
+                  <p>
+                    แสดงผลไม่เกิน 200 รายการ
+                    ใช้ช่องค้นหาเพื่อค้นหารายการเพิ่มเติม
+                  </p>
                 )}
-              </div>
-              <button className="button" disabled={busy}>
+              </fieldset>
+              <button
+                className="button"
+                disabled={
+                  busy ||
+                  serviceQuery.isPending ||
+                  serviceQuery.isError ||
+                  !selectedServices.length
+                }
+              >
                 บันทึกฉบับร่าง
               </button>
             </form>
@@ -460,7 +536,7 @@ export function AdminWorkspace({ section }: { section: string }) {
                   ),
                 )}
                 <div className="table-wrap">
-                  <table>
+                  <ResponsiveTable>
                     <thead>
                       <tr>
                         <th>รหัส</th>
@@ -497,7 +573,7 @@ export function AdminWorkspace({ section }: { section: string }) {
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </ResponsiveTable>
                 </div>
                 {r.status === "staged" && (
                   <button
@@ -524,7 +600,7 @@ export function AdminWorkspace({ section }: { section: string }) {
           </div>
         ) : (
           <div className="table-wrap">
-            <table>
+            <ResponsiveTable>
               <thead>
                 <tr>
                   {section === "appointments" ? (
@@ -733,7 +809,7 @@ export function AdminWorkspace({ section }: { section: string }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ResponsiveTable>
           </div>
         )}
       </section>

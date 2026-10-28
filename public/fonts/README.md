@@ -1,0 +1,1 @@
+Noto Sans SC, Noto Sans Myanmar and Noto Sans Khmer are bundled locally under the SIL Open Font License; see the accompanying OFL files. Source: https://github.com/google/fonts/tree/main/ofl (notosanssc, notosansmyanmar, notosanskhmer). Downloaded 2026-10-28. No runtime font service is contacted.

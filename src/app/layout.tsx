@@ -1,6 +1,12 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { Providers } from '@/components/providers';
+import { Providers } from "@/components/providers";
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#008577",
+};
 export const metadata: Metadata = {
   title: {
     default: "PDH Smart Health Check | โรงพยาบาลปลวกแดง",

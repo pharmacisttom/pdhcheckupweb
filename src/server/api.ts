@@ -1,11 +1,46 @@
+import { dictionaries, locales, translate } from "@/lib/i18n";
+import { deliverOtp, otpTestMode } from "./services/otp-delivery";
+import { recoverInterest } from "./services/recover-interest";
+import {
+  reviewInput,
+  updateReview,
+  proposeQuote,
+  acceptProposal,
+  submitAdditionalInformation,
+} from "./services/interest-review";
+import { confirmReviewedBooking } from "./services/appointments";
+import {
+  activateAccount,
+  activationInput,
+  beginMfa,
+  confirmMfa,
+  finishFirstPassword,
+  firstPasswordInput,
+  onboardingIdentity,
+  onboardingNext,
+} from "./services/enrollment";
+import {
+  createStaff,
+  createStaffInput,
+  editStaff,
+  editStaffInput,
+  listStaff,
+  staffAction,
+  staffActionInput,
+} from "./services/staff-users";
+import { staffLanding } from "@/lib/staff-roles";
 import { availableSlots } from "./services/availability";
-import { boundedRequest } from '@/lib/request-limits';
-import { changePassword, changePasswordSchema } from './services/passwords';
-import { bookingPolicy, setBookingPolicy, submitContactRequest } from './services/booking-policy';
+import { boundedRequest } from "@/lib/request-limits";
+import { changePassword, changePasswordSchema } from "./services/passwords";
+import {
+  bookingPolicy,
+  setBookingPolicy,
+  submitContactRequest,
+} from "./services/booking-policy";
 import { NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 import bcrypt from "bcryptjs";
-import { TOTP } from "otpauth";
+import { validOperatorTotp } from "@/lib/mfa";
 import { randomInt } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
@@ -22,6 +57,7 @@ import {
   rateLimit,
   sameOrigin,
   session,
+  identitySession,
 } from "@/lib/security";
 import {
   assessmentSchema,
@@ -42,7 +78,11 @@ import {
   rescheduleBooking,
 } from "./services/appointments";
 import { approveImport, stageImport } from "./services/imports";
-import { questionnaireSchema, draftQuestionnaire, approveQuestionnaire } from './services/questionnaires';
+import {
+  questionnaireSchema,
+  draftQuestionnaire,
+  approveQuestionnaire,
+} from "./services/questionnaires";
 
 const str = z.string().min(1).max(100);
 async function body<T>(req: Request, schema: z.ZodType<T>): Promise<T> {
@@ -64,8 +104,29 @@ export async function api(req: Request, path: string[]) {
   try {
     if (!["GET", "HEAD"].includes(method)) {
       await sameOrigin(req);
-      req = await boundedRequest(req, resource === 'admin/imports' ? 2200000 : 100000);
+      req = await boundedRequest(
+        req,
+        resource === "admin/imports" ? 2200000 : 100000,
+      );
     }
+    const identity = await identitySession(false);
+    const restricted = identity?.userId && identity.stage !== "full";
+    if (
+      restricted &&
+      ![
+        "auth/login",
+        "auth/logout",
+        "auth/onboarding",
+        "auth/onboarding/password",
+        "auth/mfa/setup",
+        "auth/mfa/confirm",
+      ].includes(resource)
+    )
+      throw new AppError(
+        403,
+        "กรุณาตั้งค่าบัญชีและ MFA ให้เสร็จก่อน",
+        "ENROLLMENT_REQUIRED",
+      );
     let data: unknown;
     if (method === "GET" && resource === "health") {
       if (!process.env.DATABASE_URL)
@@ -77,13 +138,47 @@ export async function api(req: Request, path: string[]) {
       data = {
         status: "ok",
         database: true,
-        notifications:
-          process.env.OTP_PROVIDER === "unconfigured"
-            ? "unconfigured"
-            : "configured",
+        notifications: otpTestMode()
+          ? "development_test"
+          : process.env.OTP_PROVIDER === "http" &&
+              process.env.OTP_HTTP_URL &&
+              process.env.OTP_HTTP_TOKEN
+            ? "configured"
+            : "unconfigured",
       };
+    } else if (method === "POST" && resource === "auth/activate") {
+      if (identity?.userId)
+        throw new AppError(409, "กรุณาออกจากระบบก่อนเปิดใช้งานบัญชี");
+      data = await activateAccount(await body(req, activationInput));
+    } else if (method === "GET" && resource === "auth/onboarding") {
+      const s = await onboardingIdentity();
+      data = { next: onboardingNext(s.user), expiresAt: s.expiresAt };
+    } else if (method === "POST" && resource === "auth/onboarding/password") {
+      data = await finishFirstPassword(await body(req, firstPasswordInput));
+    } else if (method === "POST" && resource === "auth/mfa/setup") {
+      data = await beginMfa();
+    } else if (method === "POST" && resource === "auth/mfa/confirm") {
+      const input = await body(
+        req,
+        z.object({ code: z.string().regex(/^\d{6}$/) }),
+      );
+      data = await confirmMfa(input.code);
+    } else if (method === "GET" && resource === "admin/users") {
+      const page = z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(10000)
+        .parse(url.searchParams.get("page") ?? 1);
+      data = await listStaff(url.searchParams.get("q") ?? "", page);
+    } else if (method === "POST" && resource === "admin/users") {
+      data = await createStaff(await body(req, createStaffInput));
+    } else if (method === "POST" && resource === "admin/users/update") {
+      data = await editStaff(await body(req, editStaffInput));
+    } else if (method === "POST" && resource === "admin/users/action") {
+      data = await staffAction(await body(req, staffActionInput));
     } else if (method === "POST" && resource === "auth/guest") {
-      await rateLimit('guest:global', 1000, 60);
+      await rateLimit("guest:global", 1000, 60);
       const old = await session(false);
       data = old
         ? { authenticated: true, verified: !!old.verifiedPhone }
@@ -119,40 +214,62 @@ export async function api(req: Request, path: string[]) {
       );
       if (!user?.active || !ok)
         throw new AppError(401, "ข้อมูลเข้าสู่ระบบไม่ถูกต้อง");
-      if (process.env.NODE_ENV === "production" && !user.mfaSecret)
+      if (user.activationRequired)
         throw new AppError(
           403,
-          "ต้องตั้งค่า MFA ผ่านผู้ดูแลระบบก่อนใช้งานจริง",
+          "กรุณาเปิดใช้งานบัญชีจากคำเชิญของผู้ดูแล",
+          "ACTIVATION_REQUIRED",
         );
       if (
         user.mfaSecret &&
-        new TOTP({ secret: decrypt<string>(user.mfaSecret) }).validate({
-          token: input.mfa ?? "",
-          window: 1,
-        }) === null
+        !validOperatorTotp(decrypt<string>(user.mfaSecret), input.mfa ?? "")
       )
         throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
-      const old = await session(false);
-      await db.$transaction(async tx => {
+      const old = await identitySession(false);
+      const stage = user.mustChangePassword
+        ? "password"
+        : !user.mfaSecret
+          ? "mfa"
+          : "full";
+      await db.$transaction(async (tx) => {
         // Serialize login with password changes so an in-flight old-password
         // login cannot create a new session after all sessions are revoked.
         await tx.$queryRaw`SELECT id FROM User WHERE id = ${user.id} FOR UPDATE`;
         const fresh = await tx.user.findUnique({ where: { id: user.id } });
-        if (!fresh?.active || fresh.passwordHash !== user.passwordHash || fresh.mfaSecret !== user.mfaSecret)
-          throw new AppError(401, 'ข้อมูลบัญชีเปลี่ยนแปลง กรุณาเข้าสู่ระบบใหม่');
+        if (
+          !fresh?.active ||
+          fresh.passwordHash !== user.passwordHash ||
+          fresh.mfaSecret !== user.mfaSecret ||
+          fresh.activationRequired ||
+          fresh.mustChangePassword !== user.mustChangePassword
+        )
+          throw new AppError(
+            401,
+            "ข้อมูลบัญชีเปลี่ยนแปลง กรุณาเข้าสู่ระบบใหม่",
+          );
         if (old) await tx.session.deleteMany({ where: { id: old.id } });
-        await createSession(user.id, tx);
-        await audit(tx, user.id, 'auth.login', user.id);
+        await createSession(user.id, tx, stage);
+        await audit(
+          tx,
+          user.id,
+          stage === "full" ? "auth.login" : "auth.onboarding_login",
+          user.id,
+          { stage },
+        );
       });
-      data = { role: user.role };
-    } else if (method === 'POST' && resource === 'auth/change-password') {
+      data = {
+        role: stage === "full" ? user.role : undefined,
+        next: stage === "full" ? staffLanding(user.role) : onboardingNext(user),
+        enrollmentRequired: stage !== "full",
+      };
+    } else if (method === "POST" && resource === "auth/change-password") {
       const s = (await session())!;
-      if (!s.user) throw new AppError(401, 'กรุณาเข้าสู่ระบบเจ้าหน้าที่');
-      await rateLimit('password-change:' + s.user.id, 5, 900);
+      if (!s.user) throw new AppError(401, "กรุณาเข้าสู่ระบบเจ้าหน้าที่");
+      await rateLimit("password-change:" + s.user.id, 5, 900);
       data = await changePassword(s.id, await body(req, changePasswordSchema));
-      (await cookies()).delete('pdh_session');
+      (await cookies()).delete("pdh_session");
     } else if (method === "POST" && resource === "auth/logout") {
-      const s = await session(false);
+      const s = await identitySession(false);
       if (s) await db.session.delete({ where: { id: s.id } });
       (await cookies()).delete("pdh_session");
       data = { ok: true };
@@ -165,16 +282,9 @@ export async function api(req: Request, path: string[]) {
       await rateLimit("otp:global", 100, 600);
       await rateLimit("otp-session:" + s.id, 3, 600);
       await rateLimit("otp-phone:" + privateHash(phone), 3, 600);
-      const test =
-        process.env.OTP_PROVIDER === "test" &&
-        process.env.NODE_ENV !== "production";
-      if (!test)
-        throw new AppError(
-          503,
-          "ยังไม่ได้เชื่อมต่อผู้ให้บริการ OTP",
-          "PROVIDER_UNCONFIGURED",
-        );
+      const test = otpTestMode();
       const code = String(randomInt(100000, 1000000));
+      await deliverOtp(phone, code);
       const v = await db.verification.create({
         data: {
           sessionId: s.id,
@@ -187,8 +297,12 @@ export async function api(req: Request, path: string[]) {
       data = {
         verificationId: v.id,
         expiresIn: 300,
-        testCode: code,
-        warning: "รหัสทดสอบสำหรับสภาพแวดล้อมพัฒนาเท่านั้น",
+        ...(test
+          ? {
+              testCode: code,
+              warning: "รหัสทดสอบสำหรับสภาพแวดล้อมพัฒนาเท่านั้น",
+            }
+          : {}),
       };
     } else if (method === "POST" && resource === "otp/verify") {
       const s = (await session())!;
@@ -222,16 +336,98 @@ export async function api(req: Request, path: string[]) {
       if (!success)
         throw new AppError(422, "รหัสไม่ถูกต้อง หมดอายุ หรือเกินจำนวนครั้ง");
       data = { verified: true };
-    } else if (method === 'GET' && resource === 'booking-policy') {
+    } else if (method === "GET" && resource === "booking-policy") {
       const policy = await bookingPolicy();
       data = { onlineEnabled: policy.onlineEnabled, message: policy.message };
-    } else if (method === 'POST' && resource === 'contact-requests') {
+    } else if (method === "POST" && resource === "contact-requests") {
       const s = (await session())!;
-      await rateLimit('contact-requests:' + s.id, 10, 600);
-      data = await submitContactRequest(s.id, await body(req, z.object({ registrationId: str, quoteId: str, privacyAcknowledged: z.literal(true) })));
-    } else if (method === 'GET' && resource === 'contact-requests') {
+      await rateLimit("contact-requests:" + s.id, 10, 600);
+      data = await submitContactRequest(
+        s.id,
+        await body(
+          req,
+          z.object({
+            registrationId: str,
+            quoteId: str.optional(),
+            interestedPackageId: str.optional(),
+            privacyAcknowledged: z.literal(true),
+            noticeVersion: z.string().max(30).optional(),
+          }),
+        ),
+      );
+    } else if (method === "POST" && resource === "contact-requests/slots") {
       const s = (await session())!;
-      data = await db.contactRequest.findMany({ where: { sessionId: s.id }, select: { id: true, reference: true, status: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 100 });
+      const input = await body(req, z.object({ id: str }));
+      const r = await db.contactRequest.findFirst({
+        where: { id: input.id, sessionId: s.id, status: "ready_to_schedule" },
+      });
+      if (!r || !s.verifiedPhone) throw new AppError(404, "ไม่พบรายการ");
+      data = await availableSlots(new Date(), true);
+    } else if (
+      method === "POST" &&
+      resource === "contact-requests/information"
+    ) {
+      const s = (await session())!;
+      const input = await body(
+        req,
+        z.object({ id: str, text: z.string().trim().min(1).max(4000) }),
+      );
+      data = await submitAdditionalInformation(s.id, input.id, input.text);
+    } else if (method === "POST" && resource === "contact-requests/recover") {
+      const s = (await session())!;
+      await rateLimit("recover:" + s.id, 5, 900);
+      const input = await body(
+        req,
+        z.object({
+          reference: z.string().min(1).max(40),
+          birthdate: z.iso.date(),
+        }),
+      );
+      data = await recoverInterest(s.id, input.reference, input.birthdate);
+    } else if (method === "POST" && resource === "contact-requests/accept") {
+      const s = (await session())!;
+      const input = await body(
+        req,
+        z.object({ id: str, fingerprint: z.string().length(64), slotId: str }),
+      );
+      data = await acceptProposal(
+        s.id,
+        input.id,
+        input.fingerprint,
+        input.slotId,
+      );
+    } else if (method === "GET" && resource === "contact-requests") {
+      const s = (await session())!;
+      const rows = await db.contactRequest.findMany({
+        where: { sessionId: s.id },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
+      data = await Promise.all(
+        rows.map(async (r) => ({
+          id: r.id,
+          reference: r.reference,
+          status: r.status,
+          createdAt: r.createdAt,
+          bookingId: r.bookingId,
+          acceptedAt: r.acceptedAt,
+          informationRequest: r.reviewEncrypted
+            ? decrypt<{ informationRequest?: string }>(r.reviewEncrypted)
+                .informationRequest
+            : "",
+          proposal: r.quoteId
+            ? await db.quote.findFirst({
+                where: { id: r.quoteId, sessionId: s.id },
+                select: {
+                  fingerprint: true,
+                  snapshot: true,
+                  total: true,
+                  expiresAt: true,
+                },
+              })
+            : null,
+        })),
+      );
     } else if (method === "GET" && resource === "packages") {
       const now = new Date();
       const packages = await db.package.findMany({
@@ -318,7 +514,7 @@ export async function api(req: Request, path: string[]) {
       const s = (await session())!;
       if (!s.verifiedPhone)
         throw new AppError(401, "กรุณายืนยัน OTP ก่อนบันทึกข้อมูล");
-      await rateLimit('registrations:' + s.id, 30, 600);
+      await rateLimit("registrations:" + s.id, 30, 600);
       const input = await body(
         req,
         z.object({
@@ -358,6 +554,15 @@ export async function api(req: Request, path: string[]) {
             where: { id: input.id, ownerSessionId: s.id, booking: null },
           });
           if (!existing) throw new AppError(404, "ไม่พบแบบร่าง");
+          if (
+            await tx.contactRequest.findUnique({
+              where: { registrationId: input.id },
+            })
+          )
+            throw new AppError(
+              409,
+              "ส่งข้อมูลแล้ว กรุณาติดต่อเจ้าหน้าที่เพื่อแก้ไข",
+            );
         }
         const r = input.id
           ? await tx.registration.update({
@@ -372,9 +577,14 @@ export async function api(req: Request, path: string[]) {
       });
     } else if (method === "GET" && resource === "registrations/draft") {
       const s = (await session())!;
+      const submitted = await db.contactRequest.findMany({
+        where: { sessionId: s.id },
+        select: { registrationId: true },
+      });
       const r = await db.registration.findFirst({
         where: {
           ownerSessionId: s.id,
+          id: { notIn: submitted.map((r) => r.registrationId) },
           booking: null,
           expiresAt: { gt: new Date() },
         },
@@ -392,8 +602,8 @@ export async function api(req: Request, path: string[]) {
         : null;
     } else if (method === "POST" && resource === "quotes") {
       const s = (await session())!;
-      if (!s.verifiedPhone) throw new AppError(401, 'กรุณายืนยันเบอร์โทรศัพท์');
-      await rateLimit('quotes:' + s.id, 30, 600);
+      if (!s.verifiedPhone) throw new AppError(401, "กรุณายืนยันเบอร์โทรศัพท์");
+      await rateLimit("quotes:" + s.id, 30, 600);
       const input = await body(
         req,
         z.object({ packageId: str, addonIds: z.array(str).max(50) }),
@@ -406,9 +616,13 @@ export async function api(req: Request, path: string[]) {
       data = await availableSlots(from);
     } else if (method === "POST" && resource === "holds") {
       const s = (await session())!;
-      if (!s.verifiedPhone) throw new AppError(401, 'กรุณายืนยันเบอร์โทรศัพท์');
+      if (!s.verifiedPhone) throw new AppError(401, "กรุณายืนยันเบอร์โทรศัพท์");
       await rateLimit("holds:" + s.id, 10, 600);
-      await rateLimit('holds-phone:' + privateHash(decrypt<string>(s.verifiedPhone)), 10, 600);
+      await rateLimit(
+        "holds-phone:" + privateHash(decrypt<string>(s.verifiedPhone)),
+        10,
+        600,
+      );
       const input = await body(req, z.object({ slotId: str }));
       const h = await createHold(s.id, input.slotId);
       data = { id: h.id, expiresAt: h.expiresAt };
@@ -423,6 +637,7 @@ export async function api(req: Request, path: string[]) {
           fingerprint: z.string().length(64),
           idempotencyKey: z.string().uuid(),
           privacyAcknowledged: z.literal(true),
+          noticeVersion: z.string().max(30).optional(),
         }),
       );
       data = await confirmBooking(s.id, input);
@@ -459,24 +674,40 @@ export async function api(req: Request, path: string[]) {
         input.reason,
         s.id,
       );
-    } else if (method === 'POST' && /^bookings\/[^/]+\/reschedule$/.test(resource)) {
+    } else if (
+      method === "POST" &&
+      /^bookings\/[^/]+\/reschedule$/.test(resource)
+    ) {
       const s = (await session())!;
-      const input = await body(req, z.object({ slotId: str, idempotencyKey: z.uuid() }));
-      data = await rescheduleBooking(s.id, path[1], input.slotId, input.idempotencyKey);
-    } else if (method === 'POST' && resource === 'waitlist') {
+      const input = await body(
+        req,
+        z.object({ slotId: str, idempotencyKey: z.uuid() }),
+      );
+      data = await rescheduleBooking(
+        s.id,
+        path[1],
+        input.slotId,
+        input.idempotencyKey,
+      );
+    } else if (method === "POST" && resource === "waitlist") {
       const s = (await session())!;
-      if (!s.verifiedPhone) throw new AppError(401, 'กรุณายืนยันเบอร์โทรศัพท์');
-      await rateLimit('waitlist:' + s.id, 10, 600);
+      if (!s.verifiedPhone) throw new AppError(401, "กรุณายืนยันเบอร์โทรศัพท์");
+      await rateLimit("waitlist:" + s.id, 10, 600);
       const input = await body(req, z.object({ day: z.iso.date() }));
-      if (new Date(input.day + 'T00:00:00+07:00').getTime() < Date.now()) throw new AppError(422, 'วันที่ต้องไม่อยู่ในอดีต');
-      const w = await db.waitlist.upsert({ where: { sessionId_dayId: { sessionId: s.id, dayId: input.day } }, create: { sessionId: s.id, dayId: input.day }, update: { status: 'waiting' } });
+      if (new Date(input.day + "T00:00:00+07:00").getTime() < Date.now())
+        throw new AppError(422, "วันที่ต้องไม่อยู่ในอดีต");
+      const w = await db.waitlist.upsert({
+        where: { sessionId_dayId: { sessionId: s.id, dayId: input.day } },
+        create: { sessionId: s.id, dayId: input.day },
+        update: { status: "waiting" },
+      });
       data = { id: w.id, status: w.status };
     } else if (resource.startsWith("admin/")) {
       data = await adminApi(req, path.slice(1));
     } else if (method === "POST" && resource === "privacy/requests") {
       const s = (await session())!;
       if (!s.verifiedPhone) throw new AppError(401, "กรุณายืนยันเบอร์โทรศัพท์");
-      await rateLimit('privacy-requests:' + s.id, 5, 3600);
+      await rateLimit("privacy-requests:" + s.id, 5, 3600);
       const input = await body(
         req,
         z.object({
@@ -502,29 +733,59 @@ export async function api(req: Request, path: string[]) {
     );
   } catch (error) {
     const status =
-      error instanceof AppError
-        ? error.status
-        : error instanceof ZodError
-          ? 422
-          : 503;
+      (error as { code?: string })?.code === "P2002"
+        ? 409
+        : error instanceof AppError
+          ? error.status
+          : error instanceof ZodError
+            ? 422
+            : 503;
     const message =
-      error instanceof AppError
-        ? error.message
-        : error instanceof ZodError
-          ? error.issues
-              .map((i) => i.path.join(".") + ": " + i.message)
-              .join("; ")
-          : "บริการยังไม่พร้อมใช้งาน กรุณาตรวจสอบการตั้งค่าระบบ";
+      (error as { code?: string })?.code === "P2002"
+        ? "ข้อมูลนี้มีอยู่ในระบบแล้ว"
+        : error instanceof AppError
+          ? error.message
+          : error instanceof ZodError
+            ? error.issues
+                .map((i) => i.path.join(".") + ": " + i.message)
+                .join("; ")
+            : "บริการยังไม่พร้อมใช้งาน กรุณาตรวจสอบการตั้งค่าระบบ";
     return NextResponse.json(
       {
         error: {
           code:
-            error instanceof AppError
-              ? error.code
-              : error instanceof ZodError
-                ? "VALIDATION_ERROR"
-                : "SERVICE_UNAVAILABLE",
+            (error as { code?: string })?.code === "P2002"
+              ? "CONFLICT"
+              : error instanceof AppError
+                ? error.code
+                : error instanceof ZodError
+                  ? "VALIDATION_ERROR"
+                  : "SERVICE_UNAVAILABLE",
           message,
+          messages: Object.fromEntries(
+            locales.map((locale) => {
+              const code =
+                (error as { code?: string })?.code === "P2002"
+                  ? "CONFLICT"
+                  : error instanceof AppError
+                    ? error.code
+                    : error instanceof ZodError
+                      ? "VALIDATION_ERROR"
+                      : "SERVICE_UNAVAILABLE";
+              return [
+                locale,
+                locale === "th" || dictionaries[locale][message]
+                  ? translate(message, locale)
+                  : translate(
+                      "error." +
+                        (dictionaries[locale]["error." + code]
+                          ? code
+                          : "REQUEST_FAILED"),
+                      locale,
+                    ),
+              ];
+            }),
+          ),
         },
         correlationId,
       },
@@ -534,46 +795,178 @@ export async function api(req: Request, path: string[]) {
 }
 
 async function adminApi(req: Request, path: string[]): Promise<unknown> {
-  if (path.join('/') === 'booking-policy') {
-    const s = await guard('calendar:write');
-    if (req.method === 'GET') return bookingPolicy();
-    if (req.method === 'POST') return setBookingPolicy(s.user!.id, await body(req, z.object({ onlineEnabled: z.boolean(), message: z.string().trim().min(1).max(1000) })));
+  if (path.join("/") === "booking-policy") {
+    const s = await guard("calendar:write");
+    if (req.method === "GET") return bookingPolicy();
+    if (req.method === "POST")
+      return setBookingPolicy(
+        s.user!.id,
+        await body(
+          req,
+          z.object({
+            onlineEnabled: z.boolean(),
+            message: z.string().trim().min(1).max(1000),
+          }),
+        ),
+      );
   }
-  if (path.join('/') === 'contact-requests' && req.method === 'GET') {
-    const s = await guard('bookings:read');
-    const rows = await db.contactRequest.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
-    await db.$transaction(tx => audit(tx, s.user!.id, 'contact_requests.viewed', 'contact-requests'));
-    return rows.map(r => ({ id: r.id, reference: r.reference, status: r.status, createdAt: r.createdAt, details: decrypt(r.payloadEncrypted), note: r.noteEncrypted ? decrypt<string>(r.noteEncrypted) : '' }));
-  }
-  if (path.join('/') === 'contact-requests/status' && req.method === 'POST') {
-    const s = await guard('bookings:write');
-    const input = await body(req, z.object({ id: str, status: z.enum(['pending', 'contacted', 'scheduled', 'closed']), note: z.string().trim().max(2000) }));
-    return db.$transaction(async tx => {
-      const r = await tx.contactRequest.update({ where: { id: input.id }, data: { status: input.status, noteEncrypted: encrypt(input.note) } });
-      await audit(tx, s.user!.id, 'contact_request.updated', r.id, { status: r.status });
-      return { id: r.id, status: r.status };
+  if (path.join("/") === "contact-requests/assignees" && req.method === "GET") {
+    await guard("bookings:read");
+    return db.user.findMany({
+      where: {
+        active: true,
+        role: { in: ["superadmin", "manager", "registration"] },
+      },
+      select: { id: true, name: true },
+      take: 200,
+      orderBy: { name: "asc" },
     });
+  }
+  if (path.join("/") === "contact-requests" && req.method === "GET") {
+    const s = await guard("bookings:read");
+    const rows = await db.contactRequest.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+    await db.$transaction((tx) =>
+      audit(tx, s.user!.id, "contact_requests.viewed", "contact-requests"),
+    );
+    return Promise.all(
+      rows.map(async (r) => {
+        const details = decrypt<{ questionnaireVersion: number }>(
+          r.payloadEncrypted,
+        );
+        const questionnaire =
+          typeof details.questionnaireVersion === "number"
+            ? await db.questionnaire.findUnique({
+                where: { version: details.questionnaireVersion },
+              })
+            : null;
+        return {
+          id: r.id,
+          reference: r.reference,
+          status: r.status,
+          createdAt: r.createdAt,
+          bookingId: r.bookingId,
+          assignedTo: r.assignedTo,
+          entitlementStatus: r.entitlementStatus,
+          quoteId: r.quoteId,
+          proposal: r.quoteId
+            ? await db.quote.findUnique({
+                where: { id: r.quoteId },
+                select: { snapshot: true, total: true, expiresAt: true },
+              })
+            : null,
+          acceptedAt: r.acceptedAt,
+          details,
+          questions: questionnaire?.questions ?? [],
+          review: r.reviewEncrypted ? decrypt(r.reviewEncrypted) : {},
+          note: r.noteEncrypted ? decrypt<string>(r.noteEncrypted) : "",
+        };
+      }),
+    );
+  }
+  if (path.join("/") === "contact-requests/status" && req.method === "POST") {
+    const s = await guard("bookings:write");
+    return updateReview(s.user!.id, await body(req, reviewInput));
+  }
+  if (path.join("/") === "contact-requests/quote" && req.method === "POST") {
+    const s = await guard("bookings:write");
+    const input = await body(
+      req,
+      z.object({ id: str, packageId: str, addonIds: z.array(str).max(50) }),
+    );
+    return proposeQuote(s.user!.id, input.id, input.packageId, input.addonIds);
+  }
+  if (path.join("/") === "contact-requests/schedule" && req.method === "POST") {
+    const s = await guard("bookings:write");
+    const input = await body(req, z.object({ id: str }));
+    return confirmReviewedBooking(s.user!.id, input.id);
   }
   const resource = path.join("/");
   const method = req.method;
   const url = new URL(req.url);
-  if (resource === 'questionnaires' && method === 'GET') { await guard('questionnaire:write'); return db.questionnaire.findMany({ orderBy: { version: 'desc' }, take: 50 }); }
-  if (resource === 'questionnaires' && method === 'POST') { const s = await guard('questionnaire:write'); return draftQuestionnaire(await body(req, questionnaireSchema), s.user!.id); }
-  if (resource === 'questionnaires/approve' && method === 'POST') { const s = await guard('questionnaire:write'); const { id } = await body(req, z.object({ id: str })); return approveQuestionnaire(id, s.user!.id); }
-  if (resource === 'waitlist' && method === 'GET') { await guard('bookings:read'); return db.waitlist.findMany({ select: { id: true, dayId: true, status: true, createdAt: true }, orderBy: { createdAt: 'asc' }, take: 200 }); }
-  if (resource === 'calendar' && method === 'GET') { await guard('calendar:write'); return db.dayCapacity.findMany({ where: { id: { gte: bangkokDate(new Date()) } }, include: { slots: { orderBy: { startsAt: 'asc' } } }, orderBy: { id: 'asc' }, take: 60 }); }
-  if (resource === 'calendar' && method === 'POST') {
-    const s = await guard('calendar:write');
-    const input = await body(req, z.object({ day: z.iso.date(), blackout: z.boolean(), capacity: z.number().int().min(0).max(2000) }));
-    return db.$transaction(async tx => {
-      await tx.dayCapacity.upsert({ where: { id: input.day }, create: { id: input.day, capacity: input.capacity, blackout: input.blackout }, update: {} });
+  if (resource === "questionnaires" && method === "GET") {
+    await guard("questionnaire:write");
+    return db.questionnaire.findMany({
+      orderBy: { version: "desc" },
+      take: 50,
+    });
+  }
+  if (resource === "questionnaires" && method === "POST") {
+    const s = await guard("questionnaire:write");
+    return draftQuestionnaire(await body(req, questionnaireSchema), s.user!.id);
+  }
+  if (resource === "questionnaires/approve" && method === "POST") {
+    const s = await guard("questionnaire:write");
+    const { id } = await body(req, z.object({ id: str }));
+    return approveQuestionnaire(id, s.user!.id);
+  }
+  if (resource === "waitlist" && method === "GET") {
+    await guard("bookings:read");
+    return db.waitlist.findMany({
+      select: { id: true, dayId: true, status: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+      take: 200,
+    });
+  }
+  if (resource === "calendar" && method === "GET") {
+    await guard("calendar:write");
+    return db.dayCapacity.findMany({
+      where: { id: { gte: bangkokDate(new Date()) } },
+      include: { slots: { orderBy: { startsAt: "asc" } } },
+      orderBy: { id: "asc" },
+      take: 60,
+    });
+  }
+  if (resource === "calendar" && method === "POST") {
+    const s = await guard("calendar:write");
+    const input = await body(
+      req,
+      z.object({
+        day: z.iso.date(),
+        blackout: z.boolean(),
+        capacity: z.number().int().min(0).max(2000),
+      }),
+    );
+    return db.$transaction(async (tx) => {
+      await tx.dayCapacity.upsert({
+        where: { id: input.day },
+        create: {
+          id: input.day,
+          capacity: input.capacity,
+          blackout: input.blackout,
+        },
+        update: {},
+      });
       await tx.$queryRaw`SELECT id FROM DayCapacity WHERE id = ${input.day} FOR UPDATE`;
-      const booked = await tx.booking.count({ where: { slot: { dayId: input.day }, status: { in: activeStatuses } } });
-      const held = await tx.hold.count({ where: { slot: { dayId: input.day }, consumed: false, expiresAt: { gt: new Date() } } });
-      if (input.capacity < booked + held) throw new AppError(409, 'ลดความจุต่ำกว่าจำนวนจองและสำรองไม่ได้');
-      if (input.blackout && booked) throw new AppError(409, 'มีนัดหมายอยู่ ต้องจัดการนัดเดิมก่อนปิดวันให้บริการ');
-      await tx.dayCapacity.update({ where: { id: input.day }, data: { capacity: input.capacity, blackout: input.blackout } });
-      await audit(tx, s.user!.id, 'calendar.configured', input.day); return { day: input.day, capacity: input.capacity, blackout: input.blackout };
+      const booked = await tx.booking.count({
+        where: { slot: { dayId: input.day }, status: { in: activeStatuses } },
+      });
+      const held = await tx.hold.count({
+        where: {
+          slot: { dayId: input.day },
+          consumed: false,
+          expiresAt: { gt: new Date() },
+        },
+      });
+      if (input.capacity < booked + held)
+        throw new AppError(409, "ลดความจุต่ำกว่าจำนวนจองและสำรองไม่ได้");
+      if (input.blackout && booked)
+        throw new AppError(
+          409,
+          "มีนัดหมายอยู่ ต้องจัดการนัดเดิมก่อนปิดวันให้บริการ",
+        );
+      await tx.dayCapacity.update({
+        where: { id: input.day },
+        data: { capacity: input.capacity, blackout: input.blackout },
+      });
+      await audit(tx, s.user!.id, "calendar.configured", input.day);
+      return {
+        day: input.day,
+        capacity: input.capacity,
+        blackout: input.blackout,
+      };
     });
   }
   if (method === "GET" && resource === "dashboard") {
@@ -622,17 +1015,15 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
           return acc;
         }, {}),
       ).map(([date, count]) => ({ date, count })),
-      bookings: bookings
-        .slice(0, 100)
-        .map((b) => ({
-          id: b.id,
-          reference: b.reference,
-          startsAt: b.slot.startsAt,
-          status: b.status,
-          total: b.quote.total.toFixed(2),
-          packageName: (b.quote.snapshot as { lines: { name: string }[] })
-            .lines[0]?.name,
-        })),
+      bookings: bookings.slice(0, 100).map((b) => ({
+        id: b.id,
+        reference: b.reference,
+        startsAt: b.slot.startsAt,
+        status: b.status,
+        total: b.quote.total.toFixed(2),
+        packageName: (b.quote.snapshot as { lines: { name: string }[] })
+          .lines[0]?.name,
+      })),
     };
   }
   if (resource === "bookings" && method === "GET") {
@@ -707,7 +1098,10 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
           maxAge: z.number().int().min(0).max(130),
           preparation: z.string().max(3000),
           effectiveFrom: z.iso.date(),
-          serviceIds: z.array(str).min(1).max(100),
+          serviceIds: z
+            .array(str)
+            .min(1, "กรุณาเลือกรายการตรวจอย่างน้อย 1 รายการก่อนบันทึกแพ็กเกจ")
+            .max(100, "เลือกได้ไม่เกิน 100 รายการตรวจ"),
         })
         .refine(
           (v) =>
@@ -716,6 +1110,14 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
         ),
     );
     return db.$transaction(async (tx) => {
+      const available = await tx.service.count({
+        where: { id: { in: input.serviceIds }, active: true },
+      });
+      if (available !== input.serviceIds.length)
+        throw new AppError(
+          422,
+          "รายการตรวจที่เลือกบางรายการไม่มีอยู่หรือปิดใช้งานแล้ว กรุณาโหลดรายการตรวจใหม่และเลือกอีกครั้ง",
+        );
       const latest = await tx.package.findFirst({
         where: { key: input.key },
         orderBy: { version: "desc" },
@@ -834,7 +1236,7 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
   }
   if (resource === "imports" && method === "POST") {
     const s = await guard("imports:write");
-    await rateLimit('imports:' + s.user!.id, 10, 600);
+    await rateLimit("imports:" + s.user!.id, 10, 600);
     if (Number(req.headers.get("content-length")) > 2200000)
       throw new AppError(413, "ไฟล์ใหญ่เกินกำหนด");
     const form = await req.formData();

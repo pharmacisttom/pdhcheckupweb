@@ -1,3 +1,5 @@
+import { PrismaClient } from "@prisma/client";
+import { syntheticStaff } from "./staff-fixture";
 import { test, expect } from "@playwright/test";
 import { loadEnvFile } from "node:process";
 import fs from "node:fs";
@@ -6,6 +8,46 @@ test.skip(
   process.env.SEED_DEMO !== "true",
   "Requires local development seed and test OTP provider",
 );
+// Restore the shared local policy even if a browser scenario times out.
+let policyDb: PrismaClient | undefined;
+let originalPolicy: { onlineEnabled: boolean; message: string } | null = null;
+test.beforeEach(async ({ baseURL }, testInfo) => {
+  const url = new URL(process.env.DATABASE_URL!);
+  if (
+    baseURL !== "http://localhost:3036" ||
+    !["localhost", "127.0.0.1"].includes(url.hostname) ||
+    url.pathname !== "/pdh_healthcheck" ||
+    process.env.SEED_DEMO !== "true"
+  )
+    throw Error("Synthetic localhost database required");
+  policyDb = new PrismaClient();
+  originalPolicy = await policyDb.bookingPolicy.findUniqueOrThrow({
+    where: { id: "default" },
+    select: { onlineEnabled: true, message: true },
+  });
+  if (
+    testInfo.title ===
+    "six-step registration confirms a genuine MySQL appointment"
+  )
+    await policyDb.bookingPolicy.update({
+      where: { id: "default" },
+      data: { onlineEnabled: true },
+    });
+});
+test.afterEach(async () => {
+  try {
+    if (policyDb && originalPolicy)
+      await policyDb.bookingPolicy.update({
+        where: { id: "default" },
+        data: originalPolicy,
+      });
+  } finally {
+    await policyDb?.$disconnect();
+    policyDb = undefined;
+    originalPolicy = null;
+  }
+});
+
 test("six-step registration confirms a genuine MySQL appointment", async ({
   page,
 }) => {
@@ -14,6 +56,8 @@ test("six-step registration confirms a genuine MySQL appointment", async ({
   await page.getByLabel("ชื่อ *", { exact: true }).fill("ทดสอบ" + Date.now());
   await page.getByLabel("นามสกุล *", { exact: true }).fill("สังเคราะห์");
   await page.getByLabel("วันเกิด (ค.ศ.) *", { exact: true }).fill("1990-01-01");
+  await page.locator("#sex").selectOption("unspecified");
+  await page.locator("#treatmentRight").selectOption("unknown");
   await page
     .getByLabel("โทรศัพท์มือถือ *", { exact: true })
     .fill("081" + String(Date.now()).slice(-7));
@@ -29,6 +73,10 @@ test("six-step registration confirms a genuine MySQL appointment", async ({
   await expect(
     page.getByRole("heading", { name: "2. ประเมินสุขภาพ" }),
   ).toBeVisible();
+  await page.locator("#medicalHistory").fill("ไม่มี");
+  await page.locator("#currentMedication").fill("ไม่มี");
+  await page.locator("#allergies").fill("ไม่มี");
+  await page.locator("#familyNcdStatus").selectOption("unknown");
   const selects = page.locator('select[id^="q-"]');
   for (let i = 0; i < (await selects.count()); i++)
     await selects.nth(i).selectOption({ index: 1 });
@@ -88,40 +136,51 @@ test("six-step registration confirms a genuine MySQL appointment", async ({
   });
 });
 test("staff login and database dashboard", async ({ page }) => {
-  await page.goto("/login");
-  await page
-    .getByLabel("อีเมล", { exact: true })
-    .fill(process.env.SEED_ADMIN_EMAIL!);
-  await page
-    .getByLabel("รหัสผ่าน", { exact: true })
-    .fill(process.env.SEED_ADMIN_PASSWORD!);
-  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
-  await expect(page).toHaveURL(/\/admin\/dashboard$/);
-  await expect(
-    page.getByRole("heading", { name: "ภาพรวมระบบตรวจสุขภาพ" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("มูลค่านัดหมายประมาณการ", { exact: true }),
-  ).toBeVisible();
-  await page.screenshot({
-    path: "test-results/dashboard-desktop.png",
-    fullPage: true,
-  });
+  const actor = await syntheticStaff();
+  try {
+    await page.goto("/login");
+    await page.getByLabel("อีเมล", { exact: true }).fill(actor.email);
+    await page.getByLabel("รหัสผ่าน", { exact: true }).fill(actor.password);
+    await page.locator('input[name="mfa"]').fill(actor.mfa());
+    await page
+      .getByRole("button", { name: "เข้าสู่ระบบ", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/admin\/dashboard$/);
+    await expect(
+      page.getByRole("heading", { name: "ภาพรวมระบบตรวจสุขภาพ" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("มูลค่านัดหมายประมาณการ", { exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: "test-results/dashboard-desktop.png",
+      fullPage: true,
+    });
+  } finally {
+    await actor.cleanup();
+  }
 });
 
 test("staff can pause online booking, receive callback details, and reopen booking", async ({
   browser,
 }) => {
-  const staff = await browser.newContext({ baseURL: 'http://localhost:3036' });
-  const customer = await browser.newContext({ baseURL: 'http://localhost:3036' });
+  // This scenario compiles several staff/public routes on the shared dev server.
+  // Keep normal assertion deadlines while allowing time for the complete workflow.
+  test.setTimeout(120000);
+  const actor = await syntheticStaff();
+  const staff = await browser.newContext({ baseURL: "http://localhost:3036" });
+  const customer = await browser.newContext({
+    baseURL: "http://localhost:3036",
+  });
   const admin = await staff.newPage();
   const page = await customer.newPage();
   const origin = { Origin: "http://localhost:3036" };
   const login = await staff.request.post("/api/v1/auth/login", {
     headers: origin,
     data: {
-      email: process.env.SEED_ADMIN_EMAIL,
-      password: process.env.SEED_ADMIN_PASSWORD,
+      email: actor.email,
+      password: actor.password,
+      mfa: actor.mfa(),
     },
   });
   expect(login.ok()).toBe(true);
@@ -163,6 +222,8 @@ test("staff can pause online booking, receive callback details, and reopen booki
     await page
       .getByLabel("วันเกิด (ค.ศ.) *", { exact: true })
       .fill("1990-01-01");
+  await page.locator("#sex").selectOption("unspecified");
+  await page.locator("#treatmentRight").selectOption("unknown");
     await page
       .getByLabel("โทรศัพท์มือถือ *", { exact: true })
       .fill("089" + String(Date.now()).slice(-7));
@@ -181,7 +242,11 @@ test("staff can pause online booking, receive callback details, and reopen booki
     await expect(
       page.getByRole("heading", { name: "2. ประเมินสุขภาพ" }),
     ).toBeVisible();
-    const selects = page.locator('select[id^="q-"]');
+    await page.locator("#medicalHistory").fill("ไม่มี");
+  await page.locator("#currentMedication").fill("ไม่มี");
+  await page.locator("#allergies").fill("ไม่มี");
+  await page.locator("#familyNcdStatus").selectOption("unknown");
+  const selects = page.locator('select[id^="q-"]');
     for (let i = 0; i < (await selects.count()); i++)
       await selects.nth(i).selectOption({ index: 1 });
     await page.getByRole("button", { name: "ดำเนินการต่อ" }).click();
@@ -255,5 +320,6 @@ test("staff can pause online booking, receive callback details, and reopen booki
     ).toBe(true);
     await customer.close();
     await staff.close();
+    await actor.cleanup();
   }
 });

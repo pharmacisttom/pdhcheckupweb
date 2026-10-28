@@ -22,14 +22,16 @@ import {
 } from "@/lib/domain";
 import { currentPackage, quoteSnapshot } from "./pricing";
 import type { Prisma } from "@prisma/client";
-import { assertOnlineBooking } from './booking-policy';
+import { PRIVACY_VERSION } from "@/lib/intake";
+import { assertOnlineBooking } from "./booking-policy";
 type DB = Prisma.TransactionClient;
 async function lockSlot(tx: DB, slotId: string) {
-  const slot = await tx.slot.findUnique({ where: { id: slotId } });
+  let slot = await tx.slot.findUnique({ where: { id: slotId } });
   if (!slot) throw new AppError(404, "ไม่พบช่วงเวลา");
   // All capacity mutations acquire the day lock first, then slot lock.
   await tx.$queryRaw`SELECT id FROM DayCapacity WHERE id = ${slot.dayId} FOR UPDATE`;
   await tx.$queryRaw`SELECT id FROM Slot WHERE id = ${slotId} FOR UPDATE`;
+  slot = await tx.slot.findUniqueOrThrow({ where: { id: slotId } });
   const day = await tx.dayCapacity.findUniqueOrThrow({
     where: { id: slot.dayId },
   });
@@ -44,11 +46,22 @@ async function lockSlot(tx: DB, slotId: string) {
     );
   return { slot, day };
 }
-async function checkCapacity(tx: DB, slotId: string, ownHoldId?: string, excludeBookingId?: string) {
+async function checkCapacity(
+  tx: DB,
+  slotId: string,
+  ownHoldId?: string,
+  excludeBookingId?: string,
+) {
   const { slot, day } = await lockSlot(tx, slotId);
   const now = new Date();
   const [booked, held, dailyBookings, dailyHolds] = await Promise.all([
-    tx.booking.count({ where: { slotId, status: { in: activeStatuses }, ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}) } }),
+    tx.booking.count({
+      where: {
+        slotId,
+        status: { in: activeStatuses },
+        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+      },
+    }),
     tx.hold.count({
       where: {
         slotId,
@@ -58,7 +71,11 @@ async function checkCapacity(tx: DB, slotId: string, ownHoldId?: string, exclude
       },
     }),
     tx.booking.count({
-      where: { slot: { dayId: slot.dayId }, status: { in: activeStatuses }, ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}) },
+      where: {
+        slot: { dayId: slot.dayId },
+        status: { in: activeStatuses },
+        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+      },
     }),
     tx.hold.count({
       where: {
@@ -86,9 +103,11 @@ export async function createHold(sessionId: string, slotId: string) {
       await assertOnlineBooking(tx);
       // Serializes holds for one session without reversing the day/slot lock order.
       await tx.$queryRaw`SELECT id FROM Session WHERE id = ${sessionId} FOR UPDATE`;
-      const identity = await tx.session.findUnique({ where: { id: sessionId } });
+      const identity = await tx.session.findUnique({
+        where: { id: sessionId },
+      });
       if (!identity?.verifiedPhone || identity.expiresAt <= new Date())
-        throw new AppError(401, 'กรุณายืนยันเบอร์โทรศัพท์');
+        throw new AppError(401, "กรุณายืนยันเบอร์โทรศัพท์");
       await tx.hold.updateMany({
         where: { sessionId, consumed: false },
         data: { expiresAt: new Date() },
@@ -112,11 +131,46 @@ export type ConfirmInput = {
   fingerprint: string;
   idempotencyKey: string;
   privacyAcknowledged: true;
+  noticeVersion?: string;
 };
 export async function confirmBooking(sessionId: string, input: ConfirmInput) {
+  return confirmCore(sessionId, input);
+}
+// Internal staff entry point: HTTP routes must authorize bookings:write first.
+export async function confirmReviewedBooking(
+  actorId: string,
+  requestId: string,
+) {
+  const request = await db.contactRequest.findUnique({
+    where: { id: requestId },
+  });
+  if (
+    !request?.quoteId ||
+    !request.acceptedFingerprint ||
+    !request.acceptedSlotId
+  )
+    throw new AppError(409, "ผู้ใช้ยังไม่รับทราบราคาและวันเวลา");
+  return confirmCore(
+    request.sessionId,
+    {
+      registrationId: request.registrationId,
+      quoteId: request.quoteId,
+      holdId: "",
+      fingerprint: request.acceptedFingerprint,
+      idempotencyKey: "review:" + requestId,
+      privacyAcknowledged: true,
+    },
+    { actorId, requestId },
+  );
+}
+async function confirmCore(
+  sessionId: string,
+  input: ConfirmInput,
+  review?: { actorId: string; requestId: string },
+) {
   return db.$transaction(
     async (tx) => {
-      await assertOnlineBooking(tx);
+      if (!review) await assertOnlineBooking(tx);
       await tx.$queryRaw`SELECT id FROM Session WHERE id = ${sessionId} FOR UPDATE`;
       const requestHash = fingerprint(input);
       const existing = await tx.booking.findUnique({
@@ -130,35 +184,71 @@ export async function confirmBooking(sessionId: string, input: ConfirmInput) {
           throw new AppError(409, "Idempotency key ถูกใช้กับคำขออื่น");
         return { id: existing.id, reference: existing.reference };
       }
+      if (review)
+        await tx.$queryRaw`SELECT id FROM ContactRequest WHERE id = ${review.requestId} FOR UPDATE`;
+      const reviewed = review
+        ? await tx.contactRequest.findUnique({
+            where: { id: review.requestId },
+          })
+        : null;
+      if (
+        review &&
+        (!reviewed ||
+          reviewed.status !== "ready_to_schedule" ||
+          !reviewed.acceptedAt ||
+          reviewed.quoteId !== input.quoteId ||
+          reviewed.acceptedFingerprint !== input.fingerprint ||
+          reviewed.entitlementStatus === "unverified" ||
+          reviewed.entitlementStatus === "pending")
+      )
+        throw new AppError(
+          409,
+          "กรุณาตรวจข้อมูล สิทธิ และให้ผู้ใช้รับทราบราคาและวันเวลาใหม่",
+        );
       const identity = await tx.session.findUniqueOrThrow({
         where: { id: sessionId },
       });
-      if (!identity.verifiedPhone || identity.expiresAt < new Date())
+      if (
+        !identity.verifiedPhone ||
+        (!review && identity.expiresAt < new Date())
+      )
         throw new AppError(401, "กรุณายืนยันเบอร์โทรศัพท์");
       const registration = await tx.registration.findFirst({
         where: {
           id: input.registrationId,
           ownerSessionId: sessionId,
-          expiresAt: { gt: new Date() },
+          ...(!review ? { expiresAt: { gt: new Date() } } : {}),
         },
       });
       const quote = await tx.quote.findFirst({
         where: { id: input.quoteId, sessionId, expiresAt: { gt: new Date() } },
       });
-      const hold = await tx.hold.findFirst({
-        where: {
-          id: input.holdId,
-          sessionId,
-          consumed: false,
-          expiresAt: { gt: new Date() },
-        },
-      });
+      const hold = reviewed?.acceptedSlotId
+        ? { id: "", slotId: reviewed.acceptedSlotId }
+        : await tx.hold.findFirst({
+            where: {
+              id: input.holdId,
+              sessionId,
+              consumed: false,
+              expiresAt: { gt: new Date() },
+            },
+          });
       if (!registration || !quote || !hold)
         throw new AppError(
           409,
           "ข้อมูล ราคารวม หรือเวลาที่สำรองหมดอายุ กรุณาตรวจสอบอีกครั้ง",
         );
       const person = decrypt<Person>(registration.draftEncrypted);
+      if (
+        !review &&
+        person.intakeVersion === 2 &&
+        input.noticeVersion !== PRIVACY_VERSION
+      )
+        throw new AppError(
+          409,
+          "กรุณารับทราบประกาศฉบับปัจจุบัน",
+          "NOTICE_CHANGED",
+        );
       if (person.phone !== decrypt<string>(identity.verifiedPhone))
         throw new AppError(422, "เบอร์โทรศัพท์ไม่ตรงกับเบอร์ที่ยืนยัน");
       const questionnaire = await tx.questionnaire.findFirst({
@@ -183,6 +273,7 @@ export async function confirmBooking(sessionId: string, input: ConfirmInput) {
         questionnaire.version,
       );
       if (
+        !review &&
         decisions.some((d) =>
           [
             "needs_clinical_review",
@@ -207,6 +298,7 @@ export async function confirmBooking(sessionId: string, input: ConfirmInput) {
         quote.packageId,
         previous.lines.filter((l) => l.code !== "PACKAGE").map((l) => l.id),
         tx,
+        !!review,
       );
       if (
         fingerprint(snapshot) !== quote.fingerprint ||
@@ -268,17 +360,36 @@ export async function confirmBooking(sessionId: string, input: ConfirmInput) {
           checkInTokenEncrypted: encrypt(checkToken),
         },
       });
-      await tx.hold.update({
-        where: { id: hold.id },
-        data: { consumed: true },
-      });
+      if (hold.id)
+        await tx.hold.update({
+          where: { id: hold.id },
+          data: { consumed: true },
+        });
+      if (reviewed) {
+        await tx.contactRequest.update({
+          where: { id: reviewed.id },
+          data: { bookingId: booking.id, status: "scheduled" },
+        });
+        await audit(
+          tx,
+          review!.actorId,
+          "contact_request.scheduled",
+          reviewed.id,
+          { bookingId: booking.id },
+        );
+      } else {
+        await tx.contactRequest.updateMany({
+          where: { registrationId: registration.id, sessionId },
+          data: { bookingId: booking.id, status: "scheduled" },
+        });
+      }
       await tx.invoice.create({
         data: { bookingId: booking.id, estimatedAmount: quote.total },
       });
       await tx.privacyRecord.create({
         data: {
           sessionId,
-          noticeVersion: "draft-v1",
+          noticeVersion: input.noticeVersion ?? "draft-v1",
           purpose: "registration_notice_acknowledgement",
         },
       });
@@ -298,32 +409,82 @@ export async function confirmBooking(sessionId: string, input: ConfirmInput) {
     { isolationLevel: "ReadCommitted", timeout: 20000 },
   );
 }
-export async function rescheduleBooking(sessionId: string, bookingId: string, slotId: string, idempotencyKey: string) {
-  return db.$transaction(async tx => {
-    await assertOnlineBooking(tx);
-    await tx.$queryRaw`SELECT id FROM Session WHERE id = ${sessionId} FOR UPDATE`;
-    const requestHash = fingerprint({ bookingId, slotId });
-    const previous = await tx.bookingChange.findUnique({ where: { idempotencyKey } });
-    if (previous) {
-      if (previous.sessionId !== sessionId || previous.requestHash !== requestHash) throw new AppError(409, 'Idempotency key ถูกใช้กับคำขออื่น');
-      return { id: bookingId, slotId: previous.newSlotId };
-    }
-    const booking = await tx.booking.findFirst({ where: { id: bookingId, sessionId }, include: { slot: true } });
-    const target = await tx.slot.findUnique({ where: { id: slotId } });
-    if (!booking || !target) throw new AppError(404, 'ไม่พบรายการ');
-    for (const dayId of [...new Set([booking.slot.dayId, target.dayId])].sort()) await tx.$queryRaw`SELECT id FROM DayCapacity WHERE id = ${dayId} FOR UPDATE`;
-    for (const id of [...new Set([booking.slotId, slotId])].sort()) await tx.$queryRaw`SELECT id FROM Slot WHERE id = ${id} FOR UPDATE`;
-    await tx.$queryRaw`SELECT id FROM Booking WHERE id = ${bookingId} FOR UPDATE`;
-    const fresh = await tx.booking.findUniqueOrThrow({ where: { id: bookingId } });
-    if (fresh.status !== 'confirmed' || fresh.slotId !== booking.slotId || booking.slot.startsAt.getTime() < Date.now() + 86400000) throw new AppError(409, 'เลื่อนนัดได้เฉพาะนัดที่ยืนยันและล่วงหน้าอย่างน้อย 24 ชั่วโมง');
-    if (slotId === booking.slotId) throw new AppError(422, 'กรุณาเลือกช่วงเวลาใหม่');
-    await checkCapacity(tx, slotId, undefined, bookingId);
-    await tx.booking.update({ where: { id: bookingId }, data: { slotId } });
-    const change = await tx.bookingChange.create({ data: { bookingId, sessionId, idempotencyKey, requestHash, previousSlotId: booking.slotId, newSlotId: slotId } });
-    await tx.notification.create({ data: { event: 'booking.rescheduled', dedupKey: change.id, payloadEncrypted: encrypt({ bookingId }) } });
-    await audit(tx, sessionId, 'booking.rescheduled', bookingId, { previousSlotId: booking.slotId, newSlotId: slotId });
-    return { id: bookingId, slotId };
-  }, { isolationLevel: 'ReadCommitted', timeout: 20000 });
+export async function rescheduleBooking(
+  sessionId: string,
+  bookingId: string,
+  slotId: string,
+  idempotencyKey: string,
+) {
+  return db.$transaction(
+    async (tx) => {
+      await assertOnlineBooking(tx);
+      await tx.$queryRaw`SELECT id FROM Session WHERE id = ${sessionId} FOR UPDATE`;
+      const requestHash = fingerprint({ bookingId, slotId });
+      const previous = await tx.bookingChange.findUnique({
+        where: { idempotencyKey },
+      });
+      if (previous) {
+        if (
+          previous.sessionId !== sessionId ||
+          previous.requestHash !== requestHash
+        )
+          throw new AppError(409, "Idempotency key ถูกใช้กับคำขออื่น");
+        return { id: bookingId, slotId: previous.newSlotId };
+      }
+      const booking = await tx.booking.findFirst({
+        where: { id: bookingId, sessionId },
+        include: { slot: true },
+      });
+      const target = await tx.slot.findUnique({ where: { id: slotId } });
+      if (!booking || !target) throw new AppError(404, "ไม่พบรายการ");
+      for (const dayId of [
+        ...new Set([booking.slot.dayId, target.dayId]),
+      ].sort())
+        await tx.$queryRaw`SELECT id FROM DayCapacity WHERE id = ${dayId} FOR UPDATE`;
+      for (const id of [...new Set([booking.slotId, slotId])].sort())
+        await tx.$queryRaw`SELECT id FROM Slot WHERE id = ${id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM Booking WHERE id = ${bookingId} FOR UPDATE`;
+      const fresh = await tx.booking.findUniqueOrThrow({
+        where: { id: bookingId },
+      });
+      if (
+        fresh.status !== "confirmed" ||
+        fresh.slotId !== booking.slotId ||
+        booking.slot.startsAt.getTime() < Date.now() + 86400000
+      )
+        throw new AppError(
+          409,
+          "เลื่อนนัดได้เฉพาะนัดที่ยืนยันและล่วงหน้าอย่างน้อย 24 ชั่วโมง",
+        );
+      if (slotId === booking.slotId)
+        throw new AppError(422, "กรุณาเลือกช่วงเวลาใหม่");
+      await checkCapacity(tx, slotId, undefined, bookingId);
+      await tx.booking.update({ where: { id: bookingId }, data: { slotId } });
+      const change = await tx.bookingChange.create({
+        data: {
+          bookingId,
+          sessionId,
+          idempotencyKey,
+          requestHash,
+          previousSlotId: booking.slotId,
+          newSlotId: slotId,
+        },
+      });
+      await tx.notification.create({
+        data: {
+          event: "booking.rescheduled",
+          dedupKey: change.id,
+          payloadEncrypted: encrypt({ bookingId }),
+        },
+      });
+      await audit(tx, sessionId, "booking.rescheduled", bookingId, {
+        previousSlotId: booking.slotId,
+        newSlotId: slotId,
+      });
+      return { id: bookingId, slotId };
+    },
+    { isolationLevel: "ReadCommitted", timeout: 20000 },
+  );
 }
 
 export async function transitionBooking(
@@ -346,8 +507,13 @@ export async function transitionBooking(
       const fresh = await tx.booking.findUniqueOrThrow({ where: { id } });
       if (!canTransition(fresh.status, to))
         throw new AppError(409, "ไม่สามารถเปลี่ยนสถานะนี้ได้");
-      if (to === 'checked_in' && bangkokDate(slot.startsAt) !== bangkokDate(new Date())) throw new AppError(409, 'เช็กอินได้เฉพาะวันนัดหมาย');
-      if (to === 'no_show' && slot.endsAt > new Date()) throw new AppError(409, 'บันทึกไม่มาตามนัดได้หลังสิ้นสุดช่วงเวลานัด');
+      if (
+        to === "checked_in" &&
+        bangkokDate(slot.startsAt) !== bangkokDate(new Date())
+      )
+        throw new AppError(409, "เช็กอินได้เฉพาะวันนัดหมาย");
+      if (to === "no_show" && slot.endsAt > new Date())
+        throw new AppError(409, "บันทึกไม่มาตามนัดได้หลังสิ้นสุดช่วงเวลานัด");
       if (to === "cancelled" && !reason?.trim())
         throw new AppError(422, "กรุณาระบุเหตุผล");
       if (

@@ -5,7 +5,7 @@ Booking mode changes require `calendar:write` (manager/superadmin). Callback req
 | Role         | Permissions                                                                      |
 | ------------ | -------------------------------------------------------------------------------- |
 | registration | dashboard read; bookings read/write; check-in                                    |
-| manager      | dashboard; bookings read/write; package drafts; calendar; reports; organizations |
+| manager      | dashboard; bookings read/write; package drafts; calendar; reports; organizations; non-Superadmin users |
 | laboratory   | catalog and import staging                                                       |
 | finance      | price approval; financial read; reports; dashboard                               |
 | clinician    | questionnaire editing permission; clinical read permission; package publication  |
@@ -17,3 +17,5 @@ Booking mode changes require `calendar:write` (manager/superadmin). Callback req
 Unknown roles and unspecified actions deny by default. UI navigation is not an authorization boundary: route APIs always call guards. Public registration and booking endpoints additionally enforce session ownership. A booking reference never grants record access. Coordinator workflows are not enabled until organization ownership is fully implemented.
 
 Package publication is separated from manager draft permission. Price publication requires finance permission and a different actor from the uploader, including for superadmins. Database administrators still require a separate change-management policy.
+
+Staff management requires users:manage plus password/TOTP step-up for every mutation. Only Superadmin may create, promote or manage Superadmin accounts. Restricted enrollment sessions cannot access application APIs. See USER_MANAGEMENT.md.

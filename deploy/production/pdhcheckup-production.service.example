@@ -1,0 +1,25 @@
+[Unit]
+Description=PDH Smart Health Check production
+After=network.target mysql.service
+
+[Service]
+Type=simple
+User=pdhcheckup
+Group=pdhcheckup
+WorkingDirectory=/var/www/pdhcheckup/releases/production/current/runtime
+EnvironmentFile=/var/www/pdhcheckup/shared/production/.env
+Environment=NODE_ENV=production
+Environment=HOSTNAME=127.0.0.1
+Environment=PORT=3036
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/pdhcheckup/releases/production/current/runtime/.next
+
+[Install]
+WantedBy=multi-user.target
