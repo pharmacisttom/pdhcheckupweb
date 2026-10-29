@@ -115,6 +115,7 @@ type Contact = {
     person: import("@/lib/domain").Person;
     answers: Record<string, unknown>;
     questionnaireVersion: number;
+    contactVerification?: string;
     interestedPackage?: { id: string; name: string; version: number };
     total?: string;
     estimate?: { lines: { name: string }[] };
@@ -206,6 +207,9 @@ export function ContactRequests() {
             <p>
               {dateTime(r.createdAt)} · {contactStatuses[r.status]}
             </p>
+            {r.details.contactVerification === "staff_pending" && (
+              <p>การตรวจสอบเบอร์โทร: รอเจ้าหน้าที่ตรวจสอบ (ปิดระบบ OTP)</p>
+            )}
             <dl className="review-list">
               {[
                 [

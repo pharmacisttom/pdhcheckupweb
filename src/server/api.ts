@@ -1,3 +1,8 @@
+import { intakeReusePlan, intakeReuseValue } from "@/lib/intake-reuse";
+import {
+  otpRequired,
+  assertContactSession,
+} from "./services/contact-verification";
 import { dictionaries, locales, translate } from "@/lib/i18n";
 import { deliverOtp, otpTestMode } from "./services/otp-delivery";
 import { recoverInterest } from "./services/recover-interest";
@@ -127,6 +132,17 @@ export async function api(req: Request, path: string[]) {
         "กรุณาตั้งค่าบัญชีและ MFA ให้เสร็จก่อน",
         "ENROLLMENT_REQUIRED",
       );
+    if (
+      !otpRequired() &&
+      ["otp/request", "otp/verify", "contact-requests/recover"].includes(
+        resource,
+      )
+    )
+      throw new AppError(
+        503,
+        "ปิดการส่ง OTP กรุณาติดต่อเจ้าหน้าที่เพื่อยืนยันตัวตน",
+        "OTP_DISABLED",
+      );
     let data: unknown;
     if (method === "GET" && resource === "health") {
       if (!process.env.DATABASE_URL)
@@ -138,13 +154,15 @@ export async function api(req: Request, path: string[]) {
       data = {
         status: "ok",
         database: true,
-        notifications: otpTestMode()
-          ? "development_test"
-          : process.env.OTP_PROVIDER === "http" &&
-              process.env.OTP_HTTP_URL &&
-              process.env.OTP_HTTP_TOKEN
-            ? "configured"
-            : "unconfigured",
+        notifications: !otpRequired()
+          ? "disabled"
+          : otpTestMode()
+            ? "development_test"
+            : process.env.OTP_PROVIDER === "http" &&
+                process.env.OTP_HTTP_URL &&
+                process.env.OTP_HTTP_TOKEN
+              ? "configured"
+              : "unconfigured",
       };
     } else if (method === "POST" && resource === "auth/activate") {
       if (identity?.userId)
@@ -181,12 +199,21 @@ export async function api(req: Request, path: string[]) {
       await rateLimit("guest:global", 1000, 60);
       const old = await session(false);
       data = old
-        ? { authenticated: true, verified: !!old.verifiedPhone }
-        : { authenticated: !!(await createSession()), verified: false };
+        ? {
+            authenticated: true,
+            verified: !!old.verifiedPhone,
+            otpRequired: otpRequired(),
+          }
+        : {
+            authenticated: !!(await createSession()),
+            verified: false,
+            otpRequired: otpRequired(),
+          };
     } else if (method === "GET" && resource === "auth/me") {
       const s = await session();
       data = {
         verified: !!s?.verifiedPhone,
+        otpRequired: otpRequired(),
         user: s?.user ? { name: s.user.name, role: s.user.role } : null,
       };
     } else if (method === "POST" && resource === "auth/login") {
@@ -338,7 +365,11 @@ export async function api(req: Request, path: string[]) {
       data = { verified: true };
     } else if (method === "GET" && resource === "booking-policy") {
       const policy = await bookingPolicy();
-      data = { onlineEnabled: policy.onlineEnabled, message: policy.message };
+      data = {
+        onlineEnabled: policy.onlineEnabled,
+        message: policy.message,
+        otpRequired: otpRequired(),
+      };
     } else if (method === "POST" && resource === "contact-requests") {
       const s = (await session())!;
       await rateLimit("contact-requests:" + s.id, 10, 600);
@@ -361,7 +392,8 @@ export async function api(req: Request, path: string[]) {
       const r = await db.contactRequest.findFirst({
         where: { id: input.id, sessionId: s.id, status: "ready_to_schedule" },
       });
-      if (!r || !s.verifiedPhone) throw new AppError(404, "ไม่พบรายการ");
+      if (!r) throw new AppError(404, "ไม่พบรายการ");
+      assertContactSession(s);
       data = await availableSlots(new Date(), true);
     } else if (
       method === "POST" &&
@@ -509,11 +541,17 @@ export async function api(req: Request, path: string[]) {
         orderBy: { version: "desc" },
       });
       if (!q) throw new AppError(503, "แบบประเมินยังไม่ได้รับอนุมัติ");
-      data = { version: q.version, questions: q.questions };
+      data = {
+        version: q.version,
+        questions: q.questions,
+        intakeReuse: intakeReusePlan(
+          q.questions as Question[],
+          q.rules as RiskRule[],
+        ),
+      };
     } else if (method === "POST" && resource === "registrations") {
       const s = (await session())!;
-      if (!s.verifiedPhone)
-        throw new AppError(401, "กรุณายืนยัน OTP ก่อนบันทึกข้อมูล");
+      assertContactSession(s);
       await rateLimit("registrations:" + s.id, 30, 600);
       const input = await body(
         req,
@@ -521,11 +559,11 @@ export async function api(req: Request, path: string[]) {
           id: str.optional(),
           person: personSchema,
           answers: assessmentSchema,
+          reuseIntakeAnswers: z.array(z.string().max(80)).max(20).optional(),
           questionnaireVersion: z.number().int(),
         }),
       );
-      if (input.person.phone !== decrypt<string>(s.verifiedPhone))
-        throw new AppError(422, "เบอร์โทรศัพท์ไม่ตรงกับเบอร์ที่ยืนยัน");
+      assertContactSession(s, input.person.phone);
       const q = await db.questionnaire.findFirst({
         where: {
           version: input.questionnaireVersion,
@@ -534,6 +572,22 @@ export async function api(req: Request, path: string[]) {
         },
       });
       if (!q) throw new AppError(422, "แบบประเมินไม่ถูกต้อง");
+      const reuse = intakeReusePlan(
+        q.questions as Question[],
+        q.rules as RiskRule[],
+      );
+      for (const id of input.reuseIntakeAnswers ?? []) {
+        const source = reuse[id];
+        const value = source
+          ? intakeReuseValue(source, input.person)
+          : undefined;
+        if (value === undefined)
+          throw new AppError(
+            422,
+            "แบบประเมินเปลี่ยนแปลง กรุณาโหลดแบบฟอร์มใหม่",
+          );
+        input.answers[id] = value;
+      }
       const errors = validateAnswers(q.questions as Question[], input.answers);
       if (errors.length) throw new AppError(422, errors.join("; "));
       const decisions = evaluateRules(
@@ -602,7 +656,7 @@ export async function api(req: Request, path: string[]) {
         : null;
     } else if (method === "POST" && resource === "quotes") {
       const s = (await session())!;
-      if (!s.verifiedPhone) throw new AppError(401, "กรุณายืนยันเบอร์โทรศัพท์");
+      assertContactSession(s);
       await rateLimit("quotes:" + s.id, 30, 600);
       const input = await body(
         req,
@@ -616,10 +670,13 @@ export async function api(req: Request, path: string[]) {
       data = await availableSlots(from);
     } else if (method === "POST" && resource === "holds") {
       const s = (await session())!;
-      if (!s.verifiedPhone) throw new AppError(401, "กรุณายืนยันเบอร์โทรศัพท์");
+      assertContactSession(s);
       await rateLimit("holds:" + s.id, 10, 600);
       await rateLimit(
-        "holds-phone:" + privateHash(decrypt<string>(s.verifiedPhone)),
+        "holds-contact:" +
+          (s.verifiedPhone
+            ? privateHash(decrypt<string>(s.verifiedPhone))
+            : s.id),
         10,
         600,
       );
@@ -691,7 +748,7 @@ export async function api(req: Request, path: string[]) {
       );
     } else if (method === "POST" && resource === "waitlist") {
       const s = (await session())!;
-      if (!s.verifiedPhone) throw new AppError(401, "กรุณายืนยันเบอร์โทรศัพท์");
+      assertContactSession(s);
       await rateLimit("waitlist:" + s.id, 10, 600);
       const input = await body(req, z.object({ day: z.iso.date() }));
       if (new Date(input.day + "T00:00:00+07:00").getTime() < Date.now())
@@ -706,7 +763,7 @@ export async function api(req: Request, path: string[]) {
       data = await adminApi(req, path.slice(1));
     } else if (method === "POST" && resource === "privacy/requests") {
       const s = (await session())!;
-      if (!s.verifiedPhone) throw new AppError(401, "กรุณายืนยันเบอร์โทรศัพท์");
+      assertContactSession(s);
       await rateLimit("privacy-requests:" + s.id, 5, 3600);
       const input = await body(
         req,

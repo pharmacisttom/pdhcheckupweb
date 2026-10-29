@@ -11,11 +11,17 @@ const env = {
   ...process.env,
   DATABASE_URL: url.toString(),
   RUN_DB_TESTS: "true",
+  OTP_PROVIDER: "test",
 };
 for (const args of [
   ["node_modules/prisma/build/index.js", "migrate", "deploy"],
   // Policy tests change the singleton booking mode; keep test files isolated in time.
-  ["node_modules/vitest/vitest.mjs", "run", "tests/integration", "--maxWorkers=1"],
+  [
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "tests/integration",
+    "--maxWorkers=1",
+  ],
 ]) {
   const result = spawnSync(process.execPath, args, { env, stdio: "inherit" });
   if (result.status !== 0) process.exit(result.status ?? 1);

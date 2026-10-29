@@ -1,12 +1,29 @@
 # PDH Smart Health Check — implementation workflow
 
+## Current override: OTP delivery disabled (2026-10-28)
+
+The user has disabled OTP because there is no SMS budget. OTP_PROVIDER=disabled is now the default and the local setting. Registration proceeds without requesting or verifying OTP. Request/verify/recovery endpoints return OTP_DISABLED before creating or sending a code. verifiedPhone is never fabricated: interest payloads record contactVerification=staff_pending, and staff must check contact details. Session ownership, expiry, encryption, same-origin protection, rate limits and Booking capacity/price checks remain enforced. Self-service cross-device recovery is unavailable while OTP is disabled; contact the hospital for staff-assisted identity verification. Do not implement lookup by phone/reference alone. Staff authenticator MFA remains unchanged.
+
+The OTP-enabled paths described below remain optional configuration for a future budget; they do not describe the current disabled mode. Regression fixtures explicitly enable only the development test provider on the isolated test database.
+
+Current-mode browser command: node node_modules/@playwright/test/cli.js test --config playwright.no-otp.config.ts
+
+
 Updated 2026-10-28 from local source. This replaces the earlier analysis of 2026-10-27. No production deployment or production database changes were performed.
+
+## Selectable health histories (2026-10-28)
+
+Medical, medication, allergy, surgery, assistance, hospital/insurer and family-detail fields now support None/Unknown/Specified, multiple preset checkboxes and custom editable/removable rows. Optional healthSelections stores stable codes/custom entries in the encrypted person payload. Readable canonical summaries remain in the original fields for compatibility; old free text is preserved as a custom entry without diagnosis inference. There is no new clinical scoring rule or SQL migration. Free-text API questions and per-relative notes use the same picker while keeping the existing string API contract; identity/date/numeric fields keep appropriate native controls. Family rows use stable identities on removal. See docs/all-registration-choices-2026-10-28.md for current checks/screenshots.
+
+## ลดคำถามซ้ำ (2026-10-29)
+
+The wizard reuses canonical intake answers for exact known duplicate questionnaire definitions only when no rule or dependent condition consumes the target field. The server recomputes requested bindings before validation/evaluation. Family reuse requires fully representable explicit disease codes. Conflicting legacy answers, unsupported family diseases, changed definitions and oversized text retain separate questions. Diagnosis questions and approved rules remain intact; duplicated diagnosis presets are omitted only for new choices. Surgery and family rows are grouped with health history. Additional family notes are optional expansion. See docs/lean-registration-2026-10-29.md for implementation limits and actual QA.
 
 ## Public workflow implemented
 
 1. Open the website / promotional QR and select ไทย, English, 简体中文, မြန်မာ or ខ្មែរ. The selected language is the only preference saved in localStorage. Switching language updates document lang without remounting the form, its current step or OTP state.
 2. Read the privacy summary and full-notice link before entering personal or health information. Current acknowledgement version: 2026-10-28-v1. The hospital must approve the notice wording and retention/contact details before release. Legacy API callers that omit noticeVersion retain the draft-v1 acknowledgement label; the new wizard always sends the current version.
-3. Enter identity, date of birth (age calculated), sex, phone and optional email/document, self-reported healthcare coverage and hospital/insurer. Verify the phone through OTP.
+3. Enter identity, date of birth (age calculated), sex, phone and optional email/document, self-reported healthcare coverage and hospital/insurer. OTP is currently disabled: Continue proceeds without requesting a code, and staff must verify contact details. If an OTP provider is enabled later, the existing verification path remains available.
 4. Enter medical, surgery, medication/supplement, drug/food/other allergy histories and immediate-family NCD history. None and unknown are accepted. Family entries contain relationship and disease codes, never a relative-name field. Approved questionnaire questions and rules remain versioned. Free text is never interpreted as a clinical risk score.
 5. Select a package OR ask staff to recommend services. A questionnaire rule requiring review routes to the staff path and does not block submission. Submission without a package or quote is allowed. The existing self-service online booking path remains available for eligible assessments/packages when online booking is open.
 6. Review the details and acknowledge the privacy notice. Interest submission creates one ContactRequest per Registration and returns PDH-C tracking reference. This screen explicitly says it is not an appointment, price or coverage confirmation. An optional quote is only an estimate.
@@ -72,3 +89,8 @@ Commands:
 - npm run test:interest:e2e (dedicated localhost:3037 Turbopack server with separate .local/next-interest cache, synthetic fixtures, isolated test database)
 
 See docs/qa/2026-10-28/README.md for actual test results and browser-emulation screenshots. Hardware iPhone/Android/iPad tests, assistive-technology testing on real devices, actual OTP delivery, notification delivery, HIS/insurer integration and expert translation/privacy approval remain external validation work.
+
+
+## Homepage campaign media (2026-10-29)
+
+Homepage now shows three featured posters, 13 additional posters in expandable media, and one sleep-education reference image (asc_sleep_1.jpg). All 17 open full-size, with localized captions/alt text and a Thai-original notice. Backgrounds use soft gradients; posters remain content. No pricing/coverage/clinical rules are derived from image text. See docs/campaign-images-2026-10-29.md for actual checks and limitations.

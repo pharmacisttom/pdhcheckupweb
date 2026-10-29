@@ -1,5 +1,7 @@
 # ผลทดสอบและภาพหน้าจอ — 28 ตุลาคม 2569
 
+อัปเดตล่าสุด: ผู้ใช้สั่งปิดการส่ง OTP แล้ว ดูรายละเอียดและผลทดสอบโหมดปัจจุบันใน docs/otp-disabled-2026-10-28.md ผลด้านล่างเป็นรายงานก่อนเปลี่ยนโหมดนี้
+
 ทดสอบใน Windows local workspace นี้ ไม่ใช่ production และไม่ใช่อุปกรณ์จริง
 
 | การตรวจ | ผลที่รันจริง |
@@ -58,3 +60,6 @@ Integration checks รวม ownership, การส่งซ้ำพร้อ�
 - [register-768.png](register-768.png)
 - [register-820.png](register-820.png)
 - [staff-review-820.png](staff-review-820.png)
+
+
+Latest registration detail expansion: see ../../all-registration-choices-2026-10-28.md. all-choices-390.png and all-choices-820.png are Chromium viewport screenshots using synthetic data; no physical-device test. Current checks: typecheck pass, lint 0 errors/1 existing warning, unit 68 pass, integration 49 pass, disabled-mode browser 3 pass, original full booking browser regression 1 pass. No skips in these selected runs.

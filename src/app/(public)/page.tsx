@@ -1,6 +1,6 @@
 "use client";
 import { useLanguage } from "@/components/language-provider";
-import Image from "next/image";
+import { CampaignGallery } from "@/components/campaign-gallery";
 import {
   ArrowRight,
   CalendarDays,
@@ -47,59 +47,7 @@ export default function Home() {
             <ArrowRight size={18} />
           </a>
         </div>
-        <p>{t("ภาพต้นฉบับเป็นภาษาไทย")}</p>
-        <details>
-          <summary>
-            {t("ดูสื่อประชาสัมพันธ์และโปรแกรมตรวจสุขภาพ (16 ภาพ)")}
-          </summary>
-          <p>
-            {t(
-              "รายละเอียดและราคาในสื่ออาจมีเงื่อนไข กรุณาตรวจสอบสิทธิและข้อมูลปัจจุบันกับเจ้าหน้าที่ก่อนรับบริการ",
-            )}
-          </p>
-          <div className="campaign-grid">
-            {[
-              ["341611_0.jpg", t("ตรวจวิเคราะห์องค์ประกอบร่างกาย InBody")],
-              ["341612_0.jpg", t("ตรวจการนอนหลับ Sleep Test")],
-              ["343052_0.jpg", t("โปรแกรมตรวจสุขภาพ โรงพยาบาลปลวกแดง")],
-              ["343053_0.jpg", t("คลินิกอาชีวเวชกรรม")],
-              ["343054_0.jpg", t("โปรแกรมตรวจสุขภาพอุ่นใจ สบายกระเป๋า")],
-              ["343055_0.jpg", t("โปรแกรมตรวจสุขภาพ Premium สำหรับผู้หญิง")],
-              ["343056_0.jpg", t("โปรแกรมตรวจสุขภาพ Premium สำหรับผู้ชาย")],
-              ["343057_0.jpg", t("โปรแกรมตรวจสุขภาพสำหรับข้าราชการ")],
-              ["343058_0.jpg", t("โปรแกรมข้าราชการอายุน้อยกว่า 35 ปี")],
-              ["343059_0.jpg", t("โปรแกรมข้าราชการอายุ 35 ปีขึ้นไป")],
-              ["343066_0.jpg", t("รายการตรวจสุขภาพตามสิทธิประกันสังคม")],
-              [
-                "343067_0.jpg",
-                t("โปรแกรมผู้ประกันตนตามช่วงวัย 15 และ 20–34 ปี"),
-              ],
-              ["343068_0.jpg", t("โปรแกรมผู้ประกันตนอายุ 30 ปี")],
-              ["343069_0.jpg", t("โปรแกรมผู้ประกันตนอายุ 35 ปี")],
-              ["343070_0.jpg", t("โปรแกรมผู้ประกันตนอายุ 40 ปีขึ้นไป")],
-              ["343071_0.jpg", t("รายการตรวจทางห้องปฏิบัติการ")],
-            ].map(([file, title]) => (
-              <figure key={file}>
-                <a
-                  href={"/img/" + file}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={t("ดูภาพขนาดเต็ม: ") + t(title)}
-                >
-                  <Image
-                    src={"/img/" + file}
-                    alt={t(title)}
-                    width={1080}
-                    height={1528}
-                    sizes="(max-width: 600px) 100vw, (max-width: 1000px) 50vw, 33vw"
-                    style={{ width: "100%", height: "auto" }}
-                  />
-                </a>
-                <figcaption>{t(title)}</figcaption>
-              </figure>
-            ))}
-          </div>
-        </details>
+        <CampaignGallery />
       </section>
       <section id="how-it-works" className="container process">
         <div className="section-intro">

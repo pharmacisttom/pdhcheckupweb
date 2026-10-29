@@ -273,7 +273,10 @@ test("real interest without package -> staff review -> owner acceptance -> actua
   await page.locator("#sex").selectOption("female");
   await page.locator("#treatmentRight").selectOption("unknown");
   await page.locator("#phone").fill(phone);
-  await page.getByRole("button", { name: "ขอรหัส OTP", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "ขอรหัส OTP", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "ดำเนินการต่อ", exact: true }).click();
   const otpText = await page
     .getByText("โหมดทดสอบ:", { exact: false })
     .innerText();
@@ -288,9 +291,9 @@ test("real interest without package -> staff review -> owner acceptance -> actua
   await page.locator('input[inputmode="numeric"]').fill(otp);
   await page.getByRole("button", { name: "ยืนยันรหัส", exact: true }).click();
   await page.getByRole("button", { name: "ดำเนินการต่อ", exact: true }).click();
-  await page.locator("#medicalHistory").fill("None");
-  await page.locator("#currentMedication").fill("None");
-  await page.locator("#allergies").fill("Unknown");
+  await page.locator("#medicalHistory").selectOption("none");
+  await page.locator("#currentMedication").selectOption("none");
+  await page.locator("#allergies").selectOption("unknown");
   await page.locator("#familyNcdStatus").selectOption("yes");
   await page
     .getByRole("button", { name: "เพิ่มประวัติญาติสายตรง", exact: true })
@@ -308,7 +311,7 @@ test("real interest without package -> staff review -> owner acceptance -> actua
     .getByRole("button", { name: "ลบรายการญาติ", exact: true })
     .last()
     .click();
-  await page.locator('textarea[name="surgeryHistory"]').fill("None");
+  await page.locator("#surgeryHistory").selectOption("none");
   await page.locator("#q-review").selectOption("yes");
   await page.getByRole("button", { name: "ดำเนินการต่อ", exact: true }).click();
   await page.getByRole("button", { name: "ดำเนินการต่อ", exact: true }).click();
@@ -340,7 +343,7 @@ test("real interest without package -> staff review -> owner acceptance -> actua
   const card = staffPage.locator("article").filter({
     has: staffPage.getByRole("heading", { name: reference, exact: true }),
   });
-  await expect(card.getByText("None", { exact: true }).first()).toBeVisible();
+  await expect(card.getByText("ไม่มี", { exact: true }).first()).toBeVisible();
   await card.locator('select[name="status"]').selectOption("under_review");
   await card.getByRole("button", { name: "บันทึกผลการติดต่อ" }).click();
   await expect(
@@ -416,12 +419,15 @@ test("real interest without package -> staff review -> owner acceptance -> actua
   await page.locator("#sex").selectOption("unspecified");
   await page.locator("#treatmentRight").selectOption("unknown");
   await page.getByRole("button", { name: "ดำเนินการต่อ", exact: true }).click();
-  await page.locator("#medicalHistory").fill("None");
-  await page.locator("#currentMedication").fill("None");
-  await page.locator("#allergies").fill("Unknown");
+  await page.locator("#medicalHistory").selectOption("none");
+  await page.locator("#currentMedication").selectOption("none");
+  await page.locator("#allergies").selectOption("unknown");
   await page.locator("#familyNcdStatus").selectOption("unknown");
-  await page.locator('textarea[name="surgeryHistory"]').fill("None");
+  await page.locator("#surgeryHistory").selectOption("none");
   await page.getByRole("button", { name: "ดำเนินการต่อ", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "3. เลือกแพ็กเกจ", exact: true }),
+  ).toBeVisible();
   await page
     .locator(".package-card")
     .filter({ has: page.getByRole("heading", { name: marker, exact: true }) })

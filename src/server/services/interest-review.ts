@@ -1,3 +1,4 @@
+import { assertContactSession } from "./contact-verification";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { AppError, audit, decrypt, encrypt } from "@/lib/security";
@@ -131,8 +132,7 @@ export async function acceptProposal(
     const r = await tx.contactRequest.findFirst({
       where: { id, sessionId, status: "ready_to_schedule" },
     });
-    if (!s?.verifiedPhone || s.expiresAt <= new Date())
-      throw new AppError(401, "กรุณายืนยันตัวตน");
+    assertContactSession(s);
     if (!r?.quoteId) throw new AppError(404, "ไม่พบรายการ");
     const q = await tx.quote.findFirst({
       where: {
@@ -178,14 +178,13 @@ export async function submitAdditionalInformation(
     const r = await tx.contactRequest.findFirst({
       where: { id, sessionId, status: "awaiting_information" },
     });
-    if (!r || !s?.verifiedPhone || s.expiresAt <= new Date())
-      throw new AppError(404, "ไม่พบรายการ");
+    if (!r) throw new AppError(404, "ไม่พบรายการ");
+    assertContactSession(s);
     const payload = decrypt<{
       person: { phone: string };
       supplements?: { at: string; text: string }[];
     }>(r.payloadEncrypted);
-    if (payload.person.phone !== decrypt<string>(s.verifiedPhone))
-      throw new AppError(403, "กรุณายืนยันเบอร์เดิม");
+    assertContactSession(s, payload.person.phone);
     await tx.contactRequest.update({
       where: { id },
       data: {

@@ -1,5 +1,8 @@
 # Prompt สำหรับแจ้ง ChatGPT
 
+อัปเดตคำสั่งล่าสุด: ผู้ใช้สั่งปิด OTP เพราะไม่มีงบประมาณ ตั้ง OTP_PROVIDER=disabled แล้ว ลงทะเบียนได้โดยไม่ขอรหัส เบอร์รอเจ้าหน้าที่ตรวจสอบ ห้ามปลอม verifiedPhone และห้ามกู้รายการข้ามอุปกรณ์ด้วยเบอร์/เลขอ้างอิงอย่างเดียว การเปิดใช้ SMS อีกครั้งต้องมีคำสั่งและ configuration ชัดเจน ข้อมูล OTP-enabled ด้านล่างเป็นประวัติ/ทางเลือกในอนาคต
+
+
 คัดลอกข้อความด้านล่างไปใช้กับ ChatGPT ที่เข้าถึง repository ได้ หากไม่มีสิทธิอ่าน repo ให้แนบเอกสารที่ระบุพร้อมข้อความนี้
 
 ---
@@ -54,3 +57,6 @@ Migrations ใหม่ในงานล่าสุด:
 งานถัดไป: ตรวจ implementation กับเป้าหมายและเอกสาร สรุปช่องว่างที่มีหลักฐานสั้น ๆ แล้วแก้ส่วน local ที่ยังขาดให้ครบ โดยให้ความสำคัญกับ correctness, ownership, privacy, booking capacity/ราคา และ regression ก่อน หากต้องใช้ credentials ให้ทำส่วนที่ไม่ติดให้เสร็จและระบุ configuration ที่ต้องมีอย่างตรงไปตรงมา
 
 รัน npm run typecheck, npm run lint, npm run test:unit, npm run test:db และ npm run test:interest:e2e ตามส่วนที่เปลี่ยน ใช้ฐานทดสอบเท่านั้น อัปเดต workflow และรายงานไฟล์/migrations/ผลทดสอบจริง/สิ่งที่ยังไม่ได้ทดสอบ ห้ามรายงานผ่านเมื่อไม่ได้รันหรือมี skip
+
+
+อัปเดต 2026-10-29: ลดคำถามซ้ำและรวมกลุ่มประวัติ/ญาติแล้ว อ่าน docs/lean-registration-2026-10-29.md ก่อนทำต่อ ผลล่าสุด unit72 integration50 browser disabled4 และ booking regression1 ผ่าน ไม่มี migration/deploy/commit/push รอบนี้

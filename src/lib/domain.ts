@@ -1,3 +1,8 @@
+import {
+  healthHistoryFields,
+  validHealthSelection,
+  summarizeHealthSelection,
+} from "./health-history";
 import { z } from "zod";
 import Decimal from "decimal.js";
 import { createHash } from "node:crypto";
@@ -41,6 +46,11 @@ export function ageOn(birthdate: string, at = new Date()) {
   if (age > 130) throw new Error("กรุณาตรวจสอบปีเกิด");
   return age;
 }
+const historySelectionSchema = z.object({
+  status: z.enum(["none", "unknown", "specified"]),
+  codes: z.array(z.string().max(80)).max(20),
+  custom: z.array(z.string().trim().min(1).max(2000)).max(20),
+});
 export const personSchema = z
   .object({
     firstName: z.string().trim().min(1).max(100),
@@ -86,6 +96,17 @@ export const personSchema = z
       ])
       .optional(),
     treatmentRightDetails: z.string().trim().max(500).optional(),
+    healthSelections: z
+      .object({
+        medicalHistory: historySelectionSchema.optional(),
+        currentMedication: historySelectionSchema.optional(),
+        allergies: historySelectionSchema.optional(),
+        surgeryHistory: historySelectionSchema.optional(),
+        assistance: historySelectionSchema.optional(),
+        treatmentRightDetails: historySelectionSchema.optional(),
+        familyNcdDetails: historySelectionSchema.optional(),
+      })
+      .optional(),
     medicalHistory: z.string().trim().max(2000).optional(),
     currentMedication: z.string().trim().max(2000).optional(),
     allergies: z.string().trim().max(1000).optional(),
@@ -109,6 +130,19 @@ export const personSchema = z
     contactChannel: z.enum(["sms", "email"]).default("sms"),
   })
   .superRefine((p, ctx) => {
+    for (const field of healthHistoryFields) {
+      const selection = p.healthSelections?.[field];
+      if (
+        selection &&
+        (!validHealthSelection(field, selection) ||
+          p[field] !== summarizeHealthSelection(field, selection))
+      )
+        ctx.addIssue({
+          code: "custom",
+          path: [field],
+          message: "กรุณาเลือกข้อมูลให้ครบและตรวจรายการที่เพิ่มเอง",
+        });
+    }
     if (p.intakeVersion === 2) {
       for (const field of [
         "sex",

@@ -9,8 +9,8 @@ if (database.protocol !== 'mysql:' || !['127.0.0.1', 'localhost'].includes(datab
 for (const [key, value] of Object.entries({ NODE_ENV: 'production', SEED_DEMO: 'false', HOSTNAME: '127.0.0.1', PORT: prod ? '3036' : '3037' })) if (settings[key] !== value) fail(key);
 if (!/^[a-f\d]{64}$/i.test(settings.DATA_ENCRYPTION_KEY ?? '')) fail('DATA_ENCRYPTION_KEY');
 if ((settings.OTP_PEPPER ?? '').length < 32) fail('OTP_PEPPER');
-// No real SMS adapter currently exists: test must never be enabled in either deployed runtime.
-if (settings.OTP_PROVIDER !== 'unconfigured') fail('OTP_PROVIDER (only unconfigured is supported in deployed builds)');
+// Current release intentionally disables OTP. Do not enable test or a delivery provider on VPS without a separate reviewed change.
+if (settings.OTP_PROVIDER !== 'disabled') fail('OTP_PROVIDER (this release requires disabled)');
 let origin;
 try { origin = new URL(settings.APP_URL); } catch { fail('APP_URL'); }
 if (origin.protocol !== 'https:' || origin.origin !== settings.APP_URL || (prod && origin.origin !== 'https://pdhcheckup.pluakdaenghospital.cloud') || (!prod && origin.hostname === 'pdhcheckup.pluakdaenghospital.cloud')) fail('APP_URL isolation');

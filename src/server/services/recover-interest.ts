@@ -1,3 +1,4 @@
+import { otpRequired } from "./contact-verification";
 import { db } from "@/lib/db";
 import { AppError, audit, decrypt } from "@/lib/security";
 import type { Person } from "@/lib/domain";
@@ -6,6 +7,12 @@ export async function recoverInterest(
   reference: string,
   birthdate: string,
 ) {
+  if (!otpRequired())
+    throw new AppError(
+      503,
+      "กรุณาติดต่อเจ้าหน้าที่เพื่อยืนยันตัวตน",
+      "OTP_DISABLED",
+    );
   const request = await db.contactRequest.findUnique({ where: { reference } });
   const booking = request
     ? null

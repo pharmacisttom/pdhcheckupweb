@@ -14,3 +14,8 @@ SCHEMA_COMPATIBILITY_REVIEWED=true bash deploy/staging/rollback.sh PREVIOUS_RELE
 ~~~
 
 Rehearse build failure before activation, successful deployment, failed health detection and application rollback. Confirm production's process/port/release have not changed. Rehearse backup restoration in a third recovery database. Record unit, symlink, HTTPS and UAT evidence. No staging rehearsal has been executed by this change. The unconfigured SMS provider blocks phone-verified self-service booking here too; production-style staging must not enable test OTP.
+
+
+## Current release override — 2026-10-29
+
+Use OTP_PROVIDER=disabled in both protected environment files. The validator now rejects test, http and legacy unconfigured modes for this release. OTP has been disabled by the project owner; staff Authenticator 2FA remains required. See docs/VPS_HANDOFF_2026-10-29.md (relative to repository root) for the current handoff, pending release checks and deployment prompt. Do not regenerate existing production encryption keys or OTP pepper when updating an existing database.

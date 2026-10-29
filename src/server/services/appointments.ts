@@ -1,3 +1,4 @@
+import { assertContactSession } from "./contact-verification";
 import { db } from "@/lib/db";
 import {
   AppError,
@@ -106,8 +107,7 @@ export async function createHold(sessionId: string, slotId: string) {
       const identity = await tx.session.findUnique({
         where: { id: sessionId },
       });
-      if (!identity?.verifiedPhone || identity.expiresAt <= new Date())
-        throw new AppError(401, "กรุณายืนยันเบอร์โทรศัพท์");
+      assertContactSession(identity);
       await tx.hold.updateMany({
         where: { sessionId, consumed: false },
         data: { expiresAt: new Date() },
@@ -208,11 +208,7 @@ async function confirmCore(
       const identity = await tx.session.findUniqueOrThrow({
         where: { id: sessionId },
       });
-      if (
-        !identity.verifiedPhone ||
-        (!review && identity.expiresAt < new Date())
-      )
-        throw new AppError(401, "กรุณายืนยันเบอร์โทรศัพท์");
+      assertContactSession(identity, undefined, !!review);
       const registration = await tx.registration.findFirst({
         where: {
           id: input.registrationId,
@@ -249,8 +245,7 @@ async function confirmCore(
           "กรุณารับทราบประกาศฉบับปัจจุบัน",
           "NOTICE_CHANGED",
         );
-      if (person.phone !== decrypt<string>(identity.verifiedPhone))
-        throw new AppError(422, "เบอร์โทรศัพท์ไม่ตรงกับเบอร์ที่ยืนยัน");
+      assertContactSession(identity, person.phone, !!review);
       const questionnaire = await tx.questionnaire.findFirst({
         where: {
           version: registration.questionnaireVersion,

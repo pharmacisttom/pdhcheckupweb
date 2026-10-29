@@ -1,11 +1,17 @@
 "use client";
 import { useLanguage } from "@/components/language-provider";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { request } from "@/lib/client";
 import { ErrorState } from "./ui";
 export function RecoverInterest({ onRecovered }: { onRecovered: () => void }) {
   const { t } = useLanguage();
 
+  const [otpIsRequired, setOtpIsRequired] = useState(false);
+  useEffect(() => {
+    request<{ otpRequired: boolean }>("booking-policy")
+      .then((p) => setOtpIsRequired(p.otpRequired))
+      .catch(() => setOtpIsRequired(false));
+  }, []);
   const [phone, setPhone] = useState("");
   const [reference, setReference] = useState("");
   const [birthdate, setBirthdate] = useState("");
@@ -25,6 +31,16 @@ export function RecoverInterest({ onRecovered }: { onRecovered: () => void }) {
       setBusy(false);
     }
   }
+  if (!otpIsRequired)
+    return (
+      <section className="card">
+        <p>
+          {t(
+            "ปิดการส่ง OTP หากเปลี่ยนอุปกรณ์หรือเซสชันหมดอายุ กรุณาติดต่อโรงพยาบาลเพื่อให้เจ้าหน้าที่ตรวจสอบตัวตนและค้นหารายการ",
+          )}
+        </p>
+      </section>
+    );
   return (
     <details className="card">
       <summary>{t("กลับมาติดตามรายการจากอุปกรณ์อื่น / เซสชันหมดอายุ")}</summary>

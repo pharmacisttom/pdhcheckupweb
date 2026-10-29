@@ -1,3 +1,4 @@
+import { otpRequired } from "./contact-verification";
 import { AppError } from "@/lib/security";
 export function otpTestMode() {
   return (
@@ -5,6 +6,12 @@ export function otpTestMode() {
   );
 }
 export async function deliverOtp(phone: string, code: string) {
+  if (!otpRequired())
+    throw new AppError(
+      503,
+      "ปิดการส่ง OTP กรุณาติดต่อเจ้าหน้าที่เพื่อยืนยันตัวตน",
+      "OTP_DISABLED",
+    );
   if (otpTestMode()) return;
   if (
     process.env.OTP_PROVIDER !== "http" ||

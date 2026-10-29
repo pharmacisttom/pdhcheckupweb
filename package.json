@@ -18,7 +18,8 @@
     "test:db": "node scripts/test-db.mjs",
     "api:contract": "tsx scripts/generate-contract.ts",
     "test:unit": "vitest run tests/unit",
-    "test:interest:e2e": "playwright test --config playwright.interest.config.ts"
+    "test:interest:e2e": "playwright test --config playwright.interest.config.ts",
+    "test:no-otp:e2e": "playwright test --config playwright.no-otp.config.ts"
   },
   "keywords": [],
   "author": "",

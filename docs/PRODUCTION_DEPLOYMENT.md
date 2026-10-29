@@ -50,3 +50,8 @@ SCHEMA_COMPATIBILITY_REVIEWED=true bash deploy/production/rollback.sh PREVIOUS_R
 ~~~
 
 Rollback switches only application code and reruns health. Migrations stay applied. Never restore a database automatically to fix a failed build. Keep prior releases until the approved retention policy permits pruning. Scripts do not delete releases or backups.
+
+
+## Current release override — 2026-10-29
+
+Use OTP_PROVIDER=disabled in both protected environment files. The validator now rejects test, http and legacy unconfigured modes for this release. OTP has been disabled by the project owner; staff Authenticator 2FA remains required. See docs/VPS_HANDOFF_2026-10-29.md (relative to repository root) for the current handoff, pending release checks and deployment prompt. Do not regenerate existing production encryption keys or OTP pepper when updating an existing database.

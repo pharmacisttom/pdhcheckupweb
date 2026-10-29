@@ -18,6 +18,7 @@ type Booking = {
 export function Bookings() {
   const { t, locale } = useLanguage();
 
+  const [otpIsRequired, setOtpIsRequired] = useState(false);
   const [list, setList] = useState<Booking[] | null>(null);
   const [error, setError] = useState("");
   const [contacts, setContacts] = useState<
@@ -72,6 +73,11 @@ export function Bookings() {
   }
   async function load() {
     try {
+      const identity = await request<{ otpRequired: boolean }>(
+        "auth/guest",
+        {},
+      );
+      setOtpIsRequired(identity.otpRequired);
       const bookings = await request<Booking[]>("bookings");
       setList(bookings);
       setContacts(await request("contact-requests"));
@@ -107,7 +113,7 @@ export function Bookings() {
       <PageHeader
         eyebrow="MY APPOINTMENTS"
         title={t("นัดหมายของฉัน")}
-        description={t("แสดงรายการของเซสชันที่ยืนยันตัวตนนี้เท่านั้น")}
+        description={t("แสดงเฉพาะรายการที่สร้างในเซสชันนี้")}
       />
       <RecoverInterest
         onRecovered={() => {
@@ -341,11 +347,13 @@ export function Bookings() {
           </div>
         </article>
       ))}
-      <div className="alert">
-        {t(
-          "กลับมาดูรายการได้ด้วย OTP เลขติดตามหรือเลขนัด และวันเกิด ไม่สามารถใช้เลขอ้างอิงเพียงอย่างเดียว",
-        )}
-      </div>
+      {otpIsRequired && (
+        <div className="alert">
+          {t(
+            "กลับมาดูรายการได้ด้วย OTP เลขติดตามหรือเลขนัด และวันเกิด ไม่สามารถใช้เลขอ้างอิงเพียงอย่างเดียว",
+          )}
+        </div>
+      )}
     </div>
   );
 }
