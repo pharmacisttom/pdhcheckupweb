@@ -99,3 +99,7 @@ Homepage now shows three featured posters, 13 additional posters in expandable m
 ## Staff email onboarding feature (2026-10-30)
 
 See STAFF_INVITATION_DELIVERY.md and nine staff guides. Email defaults disabled; SMTP/Resend server adapters extend existing invitations. Reset retains MFA, recovery codes are one-use/hash-only and require password. Staff recovery does not enable public patient recovery. Local verification passed; real mail/DNS/VPS acceptance remains pending. No production activation.
+
+## Health Chat local feature (2026-10-30)
+
+Optional public Health Chat now uses a separate approved notice and existing session ownership. It is disabled by default. Published/public/unexpired FAQ extracts may answer with version citations; sensitive, uncertain, conflicting or unbound pricing questions hand off. Public messages/private notes/feedback are encrypted. Explicit department agents use /admin/chat to accept, assign, transfer, reply, note and resolve. Human takeover cancels pending automatic delivery. /admin/chat/knowledge provides draft/version/import/review/publication; /settings controls notice approval, memberships and kill switches; /reports provides aggregate CSV/XLSX. No chat action creates or confirms a Booking. See PDH_HEALTH_CHAT_TEST_PLAN.md and OPERATIONS.md for tested scope and remaining acceptance. No production deployment or real AI call performed.

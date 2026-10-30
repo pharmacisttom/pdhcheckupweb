@@ -95,3 +95,46 @@ it("rejects enabling staff mail before sender verification and independent crede
     ),
   ).toBe(true);
 });
+
+describe("chat deployment gates", () => {
+  const ai = {
+    ...prod,
+    CHAT_ENABLED: "true",
+    CHAT_AI_ENABLED: "true",
+    CHAT_EXTERNAL_PROCESSING_APPROVED: "true",
+    CHAT_AI_PROVIDER: "openai",
+    CHAT_AI_MODEL: "synthetic-model",
+    CHAT_AI_API_KEY: "synthetic-provider-key",
+    CHAT_AI_MAX_CALL_USD: "0.01",
+  };
+  it("requires explicit external processing approval", () =>
+    expect(() =>
+      validateSettings(
+        { ...ai, CHAT_EXTERNAL_PROCESSING_APPROVED: "false" },
+        stg,
+        "production",
+      ),
+    ).toThrow());
+  it("accepts approved independently keyed provider configuration", () =>
+    expect(validateSettings(ai, stg, "production")).toBe(true));
+  it("rejects shared provider credentials across environments", () =>
+    expect(() =>
+      validateSettings(
+        ai,
+        { ...stg, CHAT_AI_API_KEY: ai.CHAT_AI_API_KEY },
+        "production",
+      ),
+    ).toThrow());
+  it("rejects plaintext compatible provider endpoint", () =>
+    expect(() =>
+      validateSettings(
+        {
+          ...ai,
+          CHAT_AI_PROVIDER: "compatible",
+          CHAT_AI_ENDPOINT: "http://example.invalid",
+        },
+        stg,
+        "production",
+      ),
+    ).toThrow());
+});

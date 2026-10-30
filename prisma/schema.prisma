@@ -21,6 +21,7 @@ model User {
   position String? @db.VarChar(160)
   passwordResets StaffPasswordReset[]
   mfaRecoveryCodes MfaRecoveryCode[]
+  chatAgents ChatAgent[]
   createdAt DateTime @default(now()) @db.DateTime(3)
   sessions Session[]
   invitations UserInvitation[]
@@ -355,4 +356,176 @@ model MfaRecoveryCode {
  usedAt DateTime? @db.DateTime(3)
  createdAt DateTime @default(now()) @db.DateTime(3)
  @@index([userId,usedAt])
+}
+
+model ChatDepartment {
+ id String @id @db.VarChar(40)
+ name String @db.VarChar(160)
+ active Boolean @default(true)
+ createdAt DateTime @default(now()) @db.DateTime(3)
+ agents ChatAgent[]
+ conversations ChatConversation[]
+ knowledge ChatKnowledge[]
+}
+model ChatAgent {
+ id String @id @default(cuid())
+ userId String
+ user User @relation(fields:[userId],references:[id],onDelete:Restrict)
+ departmentId String @db.VarChar(40)
+ department ChatDepartment @relation(fields:[departmentId],references:[id],onDelete:Restrict)
+ active Boolean @default(true)
+ availableUntil DateTime? @db.DateTime(3)
+ assigned ChatConversation[]
+ @@unique([userId,departmentId])
+ @@index([departmentId,active])
+}
+model ChatConfiguration {
+ id String @id @default("default") @db.VarChar(40)
+ enabled Boolean @default(false)
+ aiEnabled Boolean @default(false)
+ handoffEnabled Boolean @default(true)
+ noticeVersion String? @db.VarChar(80)
+ noticeText String? @db.Text
+ retentionDays Int?
+ policyApprovedBy String? @db.VarChar(191)
+ policyApprovedAt DateTime? @db.DateTime(3)
+ monthlyTokenLimit Int @default(0)
+ monthlyRequestLimit Int @default(0)
+ monthlyBudgetUsd Decimal @default(0) @db.Decimal(12,4)
+ slaMinutes Int @default(30)
+ updatedAt DateTime @default(now()) @updatedAt @db.DateTime(3)
+}
+model ChatConversation {
+ id String @id @default(cuid())
+ ownerSessionId String @db.VarChar(191)
+ departmentId String @db.VarChar(40)
+ department ChatDepartment @relation(fields:[departmentId],references:[id],onDelete:Restrict)
+ assignedAgentId String?
+ assignedAgent ChatAgent? @relation(fields:[assignedAgentId],references:[id],onDelete:Restrict)
+ status String @default("bot") @db.VarChar(24)
+ noticeVersion String @db.VarChar(80)
+ lastSequence Int @default(0)
+ userMessageCount Int @default(0)
+ aiPending Boolean @default(false)
+ generation Int @default(0)
+ pendingSince DateTime? @db.DateTime(3)
+ staffTypingUntil DateTime? @db.DateTime(3)
+ handoffReason String? @db.VarChar(40)
+ queuedAt DateTime? @db.DateTime(3)
+ acceptedAt DateTime? @db.DateTime(3)
+ firstReplyAt DateTime? @db.DateTime(3)
+ resolvedAt DateTime? @db.DateTime(3)
+ closedAt DateTime? @db.DateTime(3)
+ expiresAt DateTime @db.DateTime(3)
+ deletedAt DateTime? @db.DateTime(3)
+ createdAt DateTime @default(now()) @db.DateTime(3)
+ updatedAt DateTime @default(now()) @updatedAt @db.DateTime(3)
+ messages ChatMessage[]
+ assignments ChatAssignment[]
+ feedback ChatFeedback?
+ usages ChatAIUsage[]
+ @@index([ownerSessionId,createdAt])
+ @@index([departmentId,status,createdAt])
+ @@index([expiresAt,deletedAt])
+}
+model ChatMessage {
+ id String @id @default(cuid())
+ conversationId String
+ conversation ChatConversation @relation(fields:[conversationId],references:[id],onDelete:Restrict)
+ sequence Int
+ clientId String @db.VarChar(80)
+ authorType String @db.VarChar(20)
+ authorId String? @db.VarChar(191)
+ bodyEncrypted String @db.Text
+ createdAt DateTime @default(now()) @db.DateTime(3)
+ citations ChatKnowledgeCitation[]
+ @@unique([conversationId,clientId])
+ @@unique([conversationId,sequence])
+}
+model ChatAssignment {
+ id String @id @default(cuid())
+ conversationId String
+ conversation ChatConversation @relation(fields:[conversationId],references:[id],onDelete:Restrict)
+ actorId String @db.VarChar(191)
+ targetAgentId String? @db.VarChar(191)
+ departmentId String @db.VarChar(40)
+ action String @db.VarChar(30)
+ createdAt DateTime @default(now()) @db.DateTime(3)
+ @@index([conversationId,createdAt])
+}
+model ChatFeedback {
+ id String @id @default(cuid())
+ conversationId String @unique
+ conversation ChatConversation @relation(fields:[conversationId],references:[id],onDelete:Restrict)
+ rating Int
+ commentEncrypted String? @db.Text
+ createdAt DateTime @default(now()) @db.DateTime(3)
+}
+model ChatKnowledge {
+ id String @id @default(cuid())
+ topicKey String @db.VarChar(100)
+ departmentId String @db.VarChar(40)
+ department ChatDepartment @relation(fields:[departmentId],references:[id],onDelete:Restrict)
+ category String @db.VarChar(80)
+ clinical Boolean @default(false)
+ visibility String @default("public") @db.VarChar(20)
+ createdAt DateTime @default(now()) @db.DateTime(3)
+ versions ChatKnowledgeVersion[]
+ @@unique([departmentId,topicKey])
+}
+model ChatKnowledgeVersion {
+ id String @id @default(cuid())
+ knowledgeId String
+ knowledge ChatKnowledge @relation(fields:[knowledgeId],references:[id],onDelete:Restrict)
+ version Int
+ question String @db.VarChar(500)
+ answer String @db.Text
+ keywords Json
+ status String @default("draft") @db.VarChar(30)
+ authorId String @db.VarChar(191)
+ reviewerId String? @db.VarChar(191)
+ publisherId String? @db.VarChar(191)
+ startsAt DateTime @db.DateTime(3)
+ expiresAt DateTime @db.DateTime(3)
+ reviewedAt DateTime? @db.DateTime(3)
+ publishedAt DateTime? @db.DateTime(3)
+ documentName String? @db.VarChar(191)
+ documentHash String? @db.Char(64)
+ createdAt DateTime @default(now()) @db.DateTime(3)
+ chunks ChatKnowledgeChunk[]
+ citations ChatKnowledgeCitation[]
+ @@unique([knowledgeId,version])
+ @@index([status,startsAt,expiresAt])
+}
+model ChatKnowledgeChunk {
+ id String @id @default(cuid())
+ versionId String
+ version ChatKnowledgeVersion @relation(fields:[versionId],references:[id],onDelete:Restrict)
+ position Int
+ text String @db.Text
+ @@unique([versionId,position])
+ @@fulltext([text])
+}
+model ChatKnowledgeCitation {
+ id String @id @default(cuid())
+ messageId String
+ message ChatMessage @relation(fields:[messageId],references:[id],onDelete:Restrict)
+ versionId String
+ version ChatKnowledgeVersion @relation(fields:[versionId],references:[id],onDelete:Restrict)
+ @@unique([messageId,versionId])
+}
+model ChatAIUsage {
+ id String @id @default(cuid())
+ conversationId String
+ conversation ChatConversation @relation(fields:[conversationId],references:[id],onDelete:Restrict)
+ provider String @db.VarChar(30)
+ model String @db.VarChar(100)
+ status String @default("reserved") @db.VarChar(30)
+ reservedTokens Int
+ reservedUsd Decimal @db.Decimal(12,4)
+ inputTokens Int?
+ outputTokens Int?
+ estimatedCostUsd Decimal? @db.Decimal(12,6)
+ createdAt DateTime @default(now()) @db.DateTime(3)
+ @@index([createdAt,status])
 }

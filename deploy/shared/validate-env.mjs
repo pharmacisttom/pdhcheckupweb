@@ -19,6 +19,15 @@ if(emailProvider!=='disabled') {
  if(emailProvider==='resend'&&!settings.RESEND_API_KEY) fail('RESEND_API_KEY');
  for(const key of ['SMTP_PASSWORD','RESEND_API_KEY'])if(settings[key]&&settings[key]===peer[key])fail(key+' must differ from peer environment');
 }
+for(const key of ['CHAT_ENABLED','CHAT_AI_ENABLED','CHAT_EXTERNAL_PROCESSING_APPROVED']) if(settings[key]!==undefined&&!['true','false'].includes(settings[key]))fail(key);
+const chatProvider=settings.CHAT_AI_PROVIDER??'disabled';
+if(!['disabled','openai','compatible'].includes(chatProvider))fail('CHAT_AI_PROVIDER');
+if(settings.CHAT_AI_ENABLED==='true'){
+ if(settings.CHAT_ENABLED!=='true'||settings.CHAT_EXTERNAL_PROCESSING_APPROVED!=='true'||chatProvider==='disabled'||!settings.CHAT_AI_MODEL||settings.CHAT_AI_MODEL.length>100||!settings.CHAT_AI_API_KEY)fail('approved CHAT AI settings');
+ const cost=Number(settings.CHAT_AI_MAX_CALL_USD);if(!Number.isFinite(cost)||cost<=0||cost>10)fail('CHAT_AI_MAX_CALL_USD');
+ if(chatProvider==='compatible'){let endpoint;try{endpoint=new URL(settings.CHAT_AI_ENDPOINT);}catch{fail('CHAT_AI_ENDPOINT');}if(endpoint.protocol!=='https:'||endpoint.username||endpoint.password||endpoint.hash)fail('CHAT_AI_ENDPOINT');}
+ if(settings.CHAT_AI_API_KEY===peer.CHAT_AI_API_KEY)fail('CHAT_AI_API_KEY must differ from peer environment');
+}
 let origin;
 try { origin = new URL(settings.APP_URL); } catch { fail('APP_URL'); }
 if (origin.protocol !== 'https:' || origin.origin !== settings.APP_URL || (prod && origin.origin !== 'https://pdhcheckup.pluakdaenghospital.cloud') || (!prod && origin.hostname === 'pdhcheckup.pluakdaenghospital.cloud')) fail('APP_URL isolation');
