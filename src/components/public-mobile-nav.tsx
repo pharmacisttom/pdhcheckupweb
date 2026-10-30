@@ -6,7 +6,11 @@ import { useLanguage } from "./language-provider";
 export function PublicMobileNav() {
   const path = usePathname();
   const { t } = useLanguage();
-  if (path.startsWith("/auth/") || path === "/login") return null;
+  if (
+    path.startsWith("/auth/") ||
+    ["/login", "/invite", "/forgot-password", "/reset-password"].includes(path)
+  )
+    return null;
   const items = [
     { href: "/", label: "หน้าหลัก", icon: Home, active: path === "/" },
     {

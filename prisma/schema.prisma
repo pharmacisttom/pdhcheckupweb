@@ -17,6 +17,10 @@ model User {
   mustChangePassword Boolean @default(false)
   active Boolean @default(true)
   organizationId String?
+  department String? @db.VarChar(160)
+  position String? @db.VarChar(160)
+  passwordResets StaffPasswordReset[]
+  mfaRecoveryCodes MfaRecoveryCode[]
   createdAt DateTime @default(now()) @db.DateTime(3)
   sessions Session[]
   invitations UserInvitation[]
@@ -321,7 +325,34 @@ model UserInvitation {
   tokenHash String @unique @db.Char(64)
   expiresAt DateTime @db.DateTime(3)
   consumedAt DateTime? @db.DateTime(3)
+  revokedAt DateTime? @db.DateTime(3)
+  status String @default("pending") @db.VarChar(30)
+  deliveryStatus String @default("not_requested") @db.VarChar(30)
+  deliveryAttempts Int @default(0)
+  sentAt DateTime? @db.DateTime(3)
+  deliveryUpdatedAt DateTime? @db.DateTime(3)
+  noteEncrypted String? @db.Text
   createdBy String
   createdAt DateTime @default(now()) @db.DateTime(3)
   @@index([userId, expiresAt])
+}
+
+model StaffPasswordReset {
+ id String @id @default(cuid())
+ userId String
+ user User @relation(fields:[userId], references:[id], onDelete:Restrict)
+ tokenHash String @unique @db.Char(64)
+ expiresAt DateTime @db.DateTime(3)
+ consumedAt DateTime? @db.DateTime(3)
+ createdAt DateTime @default(now()) @db.DateTime(3)
+ @@index([userId, expiresAt])
+}
+model MfaRecoveryCode {
+ id String @id @default(cuid())
+ userId String
+ user User @relation(fields:[userId], references:[id], onDelete:Restrict)
+ codeHash String @unique @db.Char(64)
+ usedAt DateTime? @db.DateTime(3)
+ createdAt DateTime @default(now()) @db.DateTime(3)
+ @@index([userId,usedAt])
 }

@@ -1,3 +1,15 @@
+import {
+  consumeRecoveryCode,
+  replaceRecoveryCodes,
+  recoveryHash,
+} from "./services/mfa-recovery";
+import {
+  forgotStaffInput,
+  resetStaffInput,
+  forgotStaffPassword,
+  resetStaffPassword,
+} from "./services/staff-password-reset";
+import { listInvitations, verifyInvitation } from "./services/staff-users";
 import { intakeReusePlan, intakeReuseValue } from "@/lib/intake-reuse";
 import {
   otpRequired,
@@ -33,7 +45,7 @@ import {
   staffAction,
   staffActionInput,
 } from "./services/staff-users";
-import { staffLanding } from "@/lib/staff-roles";
+import { staffRoles, staffLanding } from "@/lib/staff-roles";
 import { availableSlots } from "./services/availability";
 import { boundedRequest } from "@/lib/request-limits";
 import { changePassword, changePasswordSchema } from "./services/passwords";
@@ -42,7 +54,7 @@ import {
   setBookingPolicy,
   submitContactRequest,
 } from "./services/booking-policy";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 import bcrypt from "bcryptjs";
 import { validOperatorTotp } from "@/lib/mfa";
@@ -168,6 +180,61 @@ export async function api(req: Request, path: string[]) {
       if (identity?.userId)
         throw new AppError(409, "กรุณาออกจากระบบก่อนเปิดใช้งานบัญชี");
       data = await activateAccount(await body(req, activationInput));
+    } else if (method === "POST" && resource === "invitations/verify") {
+      const input = await body(
+        req,
+        z.object({ token: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+      );
+      data = await verifyInvitation(input.token);
+    } else if (method === "POST" && resource === "auth/forgot-password") {
+      data = await forgotStaffPassword(
+        await body(req, forgotStaffInput),
+        after,
+      );
+    } else if (method === "POST" && resource === "auth/reset-password") {
+      data = await resetStaffPassword(await body(req, resetStaffInput));
+    } else if (method === "GET" && resource === "admin/users/invitations") {
+      data = await listInvitations(url.searchParams.get("userId") ?? undefined);
+    } else if (method === "POST" && resource === "admin/users/invitations") {
+      data = await createStaff(await body(req, createStaffInput));
+    } else if (method === "POST" && resource === "auth/mfa/recovery-codes") {
+      const s = (await session())!;
+      if (!s?.user?.mfaSecret)
+        throw new AppError(403, "กรุณายืนยันตัวตนด้วย MFA ก่อน");
+      const input = await body(
+        req,
+        z
+          .object({
+            password: z.string().min(1).max(128),
+            mfa: z.string().regex(/^\d{6}$/),
+          })
+          .strict(),
+      );
+      await rateLimit("recovery-rotate:" + s.user.id, 5, 900);
+      if (
+        !(await bcrypt.compare(input.password, s.user.passwordHash)) ||
+        !validOperatorTotp(decrypt<string>(s.user.mfaSecret), input.mfa)
+      )
+        throw new AppError(403, "รหัสผ่านหรือ MFA ไม่ถูกต้อง");
+      data = await db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM User WHERE id=${s.user!.id} FOR UPDATE`;
+        const fresh = await tx.user.findUniqueOrThrow({
+          where: { id: s.user!.id },
+        });
+        const live = await tx.session.findUnique({ where: { id: s.id } });
+        if (
+          !fresh.active ||
+          fresh.passwordHash !== s.user!.passwordHash ||
+          fresh.mfaSecret !== s.user!.mfaSecret ||
+          !live ||
+          live.expiresAt <= new Date() ||
+          live.stage !== "full"
+        )
+          throw new AppError(401, "กรุณาเข้าสู่ระบบใหม่");
+        const recoveryCodes = await replaceRecoveryCodes(tx, fresh.id);
+        await audit(tx, fresh.id, "auth.mfa_recovery_codes_rotated", fresh.id);
+        return { recoveryCodes };
+      });
     } else if (method === "GET" && resource === "auth/onboarding") {
       const s = await onboardingIdentity();
       data = { next: onboardingNext(s.user), expiresAt: s.expiresAt };
@@ -181,6 +248,28 @@ export async function api(req: Request, path: string[]) {
         z.object({ code: z.string().regex(/^\d{6}$/) }),
       );
       data = await confirmMfa(input.code);
+    } else if (method === "GET" && resource === "admin/users/audit") {
+      const actor = await guard("users:manage");
+      await rateLimit("staff-audit:" + actor!.user!.id, 120, 60);
+      const id = z
+        .string()
+        .min(1)
+        .max(191)
+        .parse(url.searchParams.get("userId"));
+      data = await db.audit.findMany({
+        where: {
+          resourceId: id,
+          OR: [
+            { action: { startsWith: "users." } },
+            { action: { startsWith: "auth." } },
+            { action: { startsWith: "invitation." } },
+            { action: { startsWith: "email." } },
+          ],
+        },
+        select: { id: true, action: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
     } else if (method === "GET" && resource === "admin/users") {
       const page = z.coerce
         .number()
@@ -188,7 +277,23 @@ export async function api(req: Request, path: string[]) {
         .min(1)
         .max(10000)
         .parse(url.searchParams.get("page") ?? 1);
-      data = await listStaff(url.searchParams.get("q") ?? "", page);
+      data = await listStaff(
+        url.searchParams.get("q") ?? "",
+        page,
+        z
+          .object({
+            department: z.string().max(160).optional(),
+            role: z.enum(staffRoles).optional(),
+            status: z.enum(["active", "pending", "suspended"]).optional(),
+          })
+          .parse(
+            Object.fromEntries(
+              ["department", "role", "status"].flatMap((k) =>
+                url.searchParams.get(k) ? [[k, url.searchParams.get(k)]] : [],
+              ),
+            ),
+          ),
+      );
     } else if (method === "POST" && resource === "admin/users") {
       data = await createStaff(await body(req, createStaffInput));
     } else if (method === "POST" && resource === "admin/users/update") {
@@ -222,7 +327,7 @@ export async function api(req: Request, path: string[]) {
         z.object({
           email: z.email().max(191),
           password: z.string().min(1).max(128),
-          mfa: z.string().max(10).optional(),
+          mfa: z.string().max(80).optional(),
         }),
       );
       await rateLimit("login:global", 500, 900);
@@ -249,7 +354,8 @@ export async function api(req: Request, path: string[]) {
         );
       if (
         user.mfaSecret &&
-        !validOperatorTotp(decrypt<string>(user.mfaSecret), input.mfa ?? "")
+        !validOperatorTotp(decrypt<string>(user.mfaSecret), input.mfa ?? "") &&
+        !recoveryHash(input.mfa ?? "")
       )
         throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
       const old = await identitySession(false);
@@ -274,6 +380,14 @@ export async function api(req: Request, path: string[]) {
             401,
             "ข้อมูลบัญชีเปลี่ยนแปลง กรุณาเข้าสู่ระบบใหม่",
           );
+        if (
+          user.mfaSecret &&
+          !validOperatorTotp(decrypt<string>(user.mfaSecret), input.mfa ?? "")
+        ) {
+          if (!(await consumeRecoveryCode(tx, user.id, input.mfa ?? "")))
+            throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
+          await audit(tx, user.id, "auth.mfa_recovery_used", user.id);
+        }
         if (old) await tx.session.deleteMany({ where: { id: old.id } });
         await createSession(user.id, tx, stage);
         await audit(

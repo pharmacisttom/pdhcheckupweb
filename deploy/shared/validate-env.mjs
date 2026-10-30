@@ -11,6 +11,14 @@ if (!/^[a-f\d]{64}$/i.test(settings.DATA_ENCRYPTION_KEY ?? '')) fail('DATA_ENCRY
 if ((settings.OTP_PEPPER ?? '').length < 32) fail('OTP_PEPPER');
 // Current release intentionally disables OTP. Do not enable test or a delivery provider on VPS without a separate reviewed change.
 if (settings.OTP_PROVIDER !== 'disabled') fail('OTP_PROVIDER (this release requires disabled)');
+const emailProvider = settings.EMAIL_PROVIDER ?? 'disabled';
+if(!['disabled','smtp','resend'].includes(emailProvider)) fail('EMAIL_PROVIDER');
+if(emailProvider!=='disabled') {
+ if(settings.EMAIL_SENDER_VERIFIED!=='true'||!/^\S+@[^\s@]+\.[^\s@]+$/.test(settings.EMAIL_FROM??'')||/[\r\n]/.test(settings.EMAIL_FROM??'')) fail('verified EMAIL_FROM');
+ if(emailProvider==='smtp' && (!settings.SMTP_HOST||!['465','587'].includes(settings.SMTP_PORT??'587')||!settings.SMTP_USER||!settings.SMTP_PASSWORD)) fail('SMTP settings');
+ if(emailProvider==='resend'&&!settings.RESEND_API_KEY) fail('RESEND_API_KEY');
+ for(const key of ['SMTP_PASSWORD','RESEND_API_KEY'])if(settings[key]&&settings[key]===peer[key])fail(key+' must differ from peer environment');
+}
 let origin;
 try { origin = new URL(settings.APP_URL); } catch { fail('APP_URL'); }
 if (origin.protocol !== 'https:' || origin.origin !== settings.APP_URL || (prod && origin.origin !== 'https://pdhcheckup.pluakdaenghospital.cloud') || (!prod && origin.hostname === 'pdhcheckup.pluakdaenghospital.cloud')) fail('APP_URL isolation');

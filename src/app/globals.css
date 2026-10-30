@@ -1908,3 +1908,5 @@ html:lang(km) body { font-family:'PDH Khmer',Tahoma,Arial,sans-serif; }
 @media(max-width:600px){.campaign-section{padding:20px 16px;width:calc(100% - 32px);}.campaign-education{grid-template-columns:minmax(0,1fr);padding:16px;}.campaign-featured .campaign-image-link img{max-height:320px;}}
 
 .sr-only {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0;}
+
+.recovery-code-list {padding:0;list-style:none;display:grid;gap:12px;}.recovery-code-list code {display:block;overflow-wrap:anywhere;font-size:15px;padding:12px;background:#eef5f5;}.invitation-history{overflow-wrap:anywhere;}.staff-filter-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}@media(max-width:800px){.staff-filter-grid{grid-template-columns:minmax(0,1fr);}}

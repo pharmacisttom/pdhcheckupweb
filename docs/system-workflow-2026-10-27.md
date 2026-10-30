@@ -94,3 +94,8 @@ See docs/qa/2026-10-28/README.md for actual test results and browser-emulation s
 ## Homepage campaign media (2026-10-29)
 
 Homepage now shows three featured posters, 13 additional posters in expandable media, and one sleep-education reference image (asc_sleep_1.jpg). All 17 open full-size, with localized captions/alt text and a Thai-original notice. Backgrounds use soft gradients; posters remain content. No pricing/coverage/clinical rules are derived from image text. See docs/campaign-images-2026-10-29.md for actual checks and limitations.
+
+
+## Staff email onboarding feature (2026-10-30)
+
+See STAFF_INVITATION_DELIVERY.md and nine staff guides. Email defaults disabled; SMTP/Resend server adapters extend existing invitations. Reset retains MFA, recovery codes are one-use/hash-only and require password. Staff recovery does not enable public patient recovery. Local verification passed; real mail/DNS/VPS acceptance remains pending. No production activation.
