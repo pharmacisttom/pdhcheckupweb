@@ -1,0 +1,6 @@
+# Health Chat API
+All endpoints use existing /api/v1 dispatcher, origin checks, measured request body, session/MFA and error envelope. Public: GET chat/config, chat/current, chat/messages?conversationId=&after=, chat/source?id=; POST chat/sessions, chat/messages, chat/handoff, chat/close, chat/feedback. POST create requires noticeVersion and acknowledged:true. Messages require conversationId, clientId UUID, text <=2000. No user text belongs in URL. Citation ID alone exposes only currently published public KB.
+
+Staff: GET admin/chat/conversations?page=, admin/chat/conversations/:id?after=, admin/chat/departments; POST :id/reply|note|assign|transfer|resolve|close|reopen|redact|typing. Conversation reads and writes require explicit active department membership, privacy redaction separately privileged. Reply/note/typing require assigned active agent. GET detail excludes owner session identifier.
+
+Knowledge GET/POST admin/chat/knowledge; POST knowledge/import multipart file+metadata JSON; POST knowledge/:versionId/submit|approve|reject|publish|archive. Settings GET/POST admin/chat/settings; POST policy, departments, agents. Reports GET admin/chat/reports?from=YYYY-MM-DD&to=YYYY-MM-DD&departmentId= optional. Error bodies and audit never contain message/provider body.

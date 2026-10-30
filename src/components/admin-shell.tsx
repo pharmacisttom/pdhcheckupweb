@@ -21,6 +21,7 @@ import {
 import { Brand } from "./ui";
 import { request } from "@/lib/client";
 const links = [
+  { path: "chat", label: "Health Chat", icon: ClipboardList },
   { path: "dashboard", label: "ภาพรวมระบบ", icon: LayoutDashboard },
   { path: "appointments", label: "จัดการนัดหมาย", icon: CalendarDays },
   {

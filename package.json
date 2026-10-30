@@ -22,7 +22,9 @@
     "test:no-otp:e2e": "playwright test --config playwright.no-otp.config.ts",
     "test:staff:e2e": "playwright test --config playwright.staff.config.ts",
     "staff:expire-invitations": "tsx scripts/staff-invitation-expiry.ts",
-    "email:check-domain": "node scripts/check-email-domain.mjs"
+    "email:check-domain": "node scripts/check-email-domain.mjs",
+    "test:chat:e2e": "playwright test --config playwright.chat.config.ts",
+    "chat:retention": "tsx scripts/chat-retention.ts"
   },
   "keywords": [],
   "author": "",
@@ -39,9 +41,11 @@
     "decimal.js": "^10.6.0",
     "exceljs": "^4.4.0",
     "lucide-react": "^1.61.0",
+    "mammoth": "^1.13.0",
     "next": "^16.4.2",
     "nodemailer": "^10.3.1",
     "otpauth": "^9.5.2",
+    "pdf-parse": "^2.4.5",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
     "react-day-picker": "^10.0.2",
@@ -49,6 +53,7 @@
     "react-hook-form": "^7.90.0",
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.7.0",
+    "yauzl": "^3.4.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -59,6 +64,7 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/yauzl": "^3.4.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.2",
     "prettier": "^3.9.10",

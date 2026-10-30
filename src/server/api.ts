@@ -1,3 +1,4 @@
+import { chatRoute } from "./services/chat/router";
 import {
   consumeRecoveryCode,
   replaceRecoveryCodes,
@@ -123,7 +124,11 @@ export async function api(req: Request, path: string[]) {
       await sameOrigin(req);
       req = await boundedRequest(
         req,
-        resource === "admin/imports" ? 2200000 : 100000,
+        resource === "admin/imports"
+          ? 2200000
+          : resource === "admin/chat/knowledge/import"
+            ? 1200000
+            : 100000,
       );
     }
     const identity = await identitySession(false);
@@ -155,6 +160,17 @@ export async function api(req: Request, path: string[]) {
         "ปิดการส่ง OTP กรุณาติดต่อเจ้าหน้าที่เพื่อยืนยันตัวตน",
         "OTP_DISABLED",
       );
+    if (resource.startsWith("chat/") || resource.startsWith("admin/chat/")) {
+      return NextResponse.json(
+        { data: await chatRoute(req, resource), correlationId },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+            "Referrer-Policy": "no-referrer",
+          },
+        },
+      );
+    }
     let data: unknown;
     if (method === "GET" && resource === "health") {
       if (!process.env.DATABASE_URL)

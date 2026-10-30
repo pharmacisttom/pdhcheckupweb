@@ -1,0 +1,6 @@
+# Health Chat database
+Additive migrations: 202610300001_health_chat creates 12 Chat tables and only two department rows plus disabled singleton configuration; 202610300002_chat_typing adds an expiring staff typing timestamp. User gains a relation only. No existing registration/booking table is replaced.
+
+Conversation ownerSessionId is an opaque existing Session ID; public read requires authenticated session ownership, expiry and not deleted. Messages are AES-GCM encrypted through existing encrypt/decrypt. UUID clientId and conversation sequence have unique constraints. Assignment, append and mode transitions use conversation FOR UPDATE. Knowledge root lock serializes versions/publication. AI reservations lock singleton configuration. Citation retains exact version ID. Chunk text has MySQL fulltext index; current conservative retrieval uses bounded keywords and exact questions, not semantic matching.
+
+Migrations were applied to localhost:3308 pdh_healthcheck_test for integration and then localhost:3308 pdh_healthcheck with SEED_DEMO=true for the local development server. No production database was accessed. Do not run db:seed in production. Database backup and encrypted backup retention require existing hospital policy; logical redaction does not remove historical backups.

@@ -1,4 +1,5 @@
 "use client";
+import { ChatWidget } from "@/components/chat-widget";
 import { useLanguage } from "@/components/language-provider";
 import {
   LanguageProvider,
@@ -44,6 +45,7 @@ function PublicContent({ children }: { children: React.ReactNode }) {
         </div>
       </footer>
       <PublicMobileNav />
+      <ChatWidget />
     </div>
   );
 }
