@@ -19,7 +19,10 @@
     "api:contract": "tsx scripts/generate-contract.ts",
     "test:unit": "vitest run tests/unit",
     "test:interest:e2e": "playwright test --config playwright.interest.config.ts",
-    "test:no-otp:e2e": "playwright test --config playwright.no-otp.config.ts"
+    "test:no-otp:e2e": "playwright test --config playwright.no-otp.config.ts",
+    "test:staff:e2e": "playwright test --config playwright.staff.config.ts",
+    "staff:expire-invitations": "tsx scripts/staff-invitation-expiry.ts",
+    "email:check-domain": "node scripts/check-email-domain.mjs"
   },
   "keywords": [],
   "author": "",
@@ -37,6 +40,7 @@
     "exceljs": "^4.4.0",
     "lucide-react": "^1.61.0",
     "next": "^16.4.2",
+    "nodemailer": "^10.3.1",
     "otpauth": "^9.5.2",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
@@ -51,6 +55,7 @@
     "@playwright/test": "^1.64.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.6.5",
+    "@types/nodemailer": "^8.0.2",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

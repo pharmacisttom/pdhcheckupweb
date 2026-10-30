@@ -57,7 +57,9 @@ export function equalHash(a: string, b: string) {
   );
 }
 export type Identity = Session & { user: User | null };
-export async function identitySession(required = true): Promise<Identity | null> {
+export async function identitySession(
+  required = true,
+): Promise<Identity | null> {
   const value = (await cookies()).get("pdh_session")?.value;
   const s = value
     ? await db.session.findUnique({
@@ -74,20 +76,34 @@ export async function identitySession(required = true): Promise<Identity | null>
 }
 export async function session(required = true): Promise<Identity | null> {
   const s = await identitySession(false);
-  if (!s || s.stage !== 'full' || (s.userId && (!s.user?.mfaSecret || s.user.activationRequired || s.user.mustChangePassword))) {
-    if (required) throw new AppError(401, 'กรุณายืนยันตัวตนให้ครบถ้วน', 'UNAUTHENTICATED');
+  if (
+    !s ||
+    s.stage !== "full" ||
+    (s.userId &&
+      (!s.user?.mfaSecret ||
+        s.user.activationRequired ||
+        s.user.mustChangePassword))
+  ) {
+    if (required)
+      throw new AppError(401, "กรุณายืนยันตัวตนให้ครบถ้วน", "UNAUTHENTICATED");
     return null;
   }
   return s;
 }
-export async function createSession(userId?: string, store: Prisma.TransactionClient = db, stage: 'full' | 'password' | 'mfa' = 'full') {
+export async function createSession(
+  userId?: string,
+  store: Prisma.TransactionClient = db,
+  stage: "full" | "password" | "mfa" = "full",
+) {
   const raw = token();
   const s = await store.session.create({
     data: {
       tokenHash: hash(raw),
       userId,
       stage,
-      expiresAt: new Date(Date.now() + (stage === 'full' ? (userId ? 8 : 2) * 3600000 : 600000)),
+      expiresAt: new Date(
+        Date.now() + (stage === "full" ? (userId ? 8 : 2) * 3600000 : 600000),
+      ),
     },
   });
   (await cookies()).set("pdh_session", raw, {
@@ -95,7 +111,7 @@ export async function createSession(userId?: string, store: Prisma.TransactionCl
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: stage === 'full' ? (userId ? 28800 : 7200) : 600,
+    maxAge: stage === "full" ? (userId ? 28800 : 7200) : 600,
   });
   return s;
 }
@@ -179,6 +195,7 @@ export async function audit(
   action: string,
   resourceId: string,
   metadata: Prisma.InputJsonValue = {},
+  correlationId?: string,
 ) {
   await tx.audit.create({
     data: {
@@ -187,6 +204,7 @@ export async function audit(
       resourceId,
       metadata,
       correlationId:
+        correlationId ??
         (await headers()).get("x-request-id")?.slice(0, 100) ??
         crypto.randomUUID(),
     },

@@ -14,9 +14,9 @@ die() { echo "$1" >&2; exit 1; }
 require_env() {
   [[ -f $ENV_FILE && ! -L $ENV_FILE ]] || die 'Missing protected environment file'
   [[ $(stat -c %a "$ENV_FILE") == 600 ]] || die 'Environment file must have mode 600'
-  env -u DATABASE_URL -u NODE_ENV -u SEED_DEMO -u HOSTNAME -u PORT -u APP_URL -u DATA_ENCRYPTION_KEY -u OTP_PEPPER -u OTP_PROVIDER node --env-file="$ENV_FILE" "$TOOLS/validate-env.mjs" "$DEPLOY_ENV"
+  env -u DATABASE_URL -u NODE_ENV -u SEED_DEMO -u HOSTNAME -u PORT -u APP_URL -u DATA_ENCRYPTION_KEY -u OTP_PEPPER -u OTP_PROVIDER -u EMAIL_PROVIDER -u EMAIL_FROM -u EMAIL_SENDER_VERIFIED -u SMTP_HOST -u SMTP_PORT -u SMTP_USER -u SMTP_PASSWORD -u RESEND_API_KEY -u EMAIL_DKIM_SELECTOR node --env-file="$ENV_FILE" "$TOOLS/validate-env.mjs" "$DEPLOY_ENV"
 }
-with_env() { env -u DATABASE_URL -u NODE_ENV -u SEED_DEMO -u HOSTNAME -u PORT -u APP_URL -u DATA_ENCRYPTION_KEY -u OTP_PEPPER -u OTP_PROVIDER node --env-file="$ENV_FILE" "$TOOLS/run.mjs" "$@"; }
+with_env() { env -u DATABASE_URL -u NODE_ENV -u SEED_DEMO -u HOSTNAME -u PORT -u APP_URL -u DATA_ENCRYPTION_KEY -u OTP_PEPPER -u OTP_PROVIDER -u EMAIL_PROVIDER -u EMAIL_FROM -u EMAIL_SENDER_VERIFIED -u SMTP_HOST -u SMTP_PORT -u SMTP_USER -u SMTP_PASSWORD -u RESEND_API_KEY -u EMAIL_DKIM_SELECTOR node --env-file="$ENV_FILE" "$TOOLS/run.mjs" "$@"; }
 lock_environment() {
   mkdir -p "$RELEASES"
   exec 9>"$RELEASES/.deploy.lock"

@@ -8,6 +8,7 @@ export function Login() {
   useEffect(() => {
     setReady(true);
   }, []);
+  const [recovery, setRecovery] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   return (
@@ -63,19 +64,33 @@ export function Login() {
             />
           </label>
           <label className="field">
-            รหัส MFA (หากตั้งค่าไว้)
+            {recovery ? "รหัสกู้คืน MFA" : "รหัส MFA (หากตั้งค่าไว้)"}
             <input
               name="mfa"
               disabled={!ready || busy}
-              inputMode="numeric"
+              inputMode={recovery ? "text" : "numeric"}
               autoComplete="one-time-code"
-              maxLength={6}
+              maxLength={recovery ? 80 : 6}
             />
           </label>
           <button className="button" disabled={busy || !ready}>
             {busy ? "กำลังตรวจสอบ…" : "เข้าสู่ระบบ"}
           </button>
         </form>
+        <button
+          type="button"
+          className="button secondary"
+          onClick={() => setRecovery(!recovery)}
+        >
+          {recovery ? "ใช้รหัส Authenticator" : "ใช้รหัสกู้คืน MFA แทน"}
+        </button>
+        <p>
+          หากไม่มีทั้ง Authenticator และรหัสกู้คืน
+          กรุณาติดต่อผู้ดูแลเพื่อตรวจสอบตัวตน
+        </p>
+        <p>
+          <a href="/forgot-password">ลืมรหัสผ่านเจ้าหน้าที่</a>
+        </p>
         <p style={{ fontSize: 11, margin: "20px 0 0" }}>
           ไม่มีบัญชีเริ่มต้นในระบบ
           ต้องสร้างโดยผู้ดูแลพร้อมกำหนดสิทธิ์ก่อนเข้าใช้งาน
