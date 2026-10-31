@@ -1,3 +1,4 @@
+import { adminCrud } from "./services/admin-crud";
 import { chatRoute } from "./services/chat/router";
 import {
   consumeRecoveryCode,
@@ -927,6 +928,22 @@ export async function api(req: Request, path: string[]) {
           : error instanceof ZodError
             ? 422
             : 503;
+    if (status >= 500) {
+      const code = (error as { code?: string })?.code;
+      console.error(
+        JSON.stringify({
+          event: "api.failure",
+          correlationId,
+          scope: resource.startsWith("admin/") ? "admin" : "public",
+          method: ["GET", "POST"].includes(method) ? method : "OTHER",
+          code:
+            typeof code === "string" &&
+            /^(P[0-9]{4}|NOT_CONFIGURED)$/.test(code)
+              ? code
+              : "UNEXPECTED",
+        }),
+      );
+    }
     const message =
       (error as { code?: string })?.code === "P2002"
         ? "ข้อมูลนี้มีอยู่ในระบบแล้ว"
@@ -976,12 +993,17 @@ export async function api(req: Request, path: string[]) {
         },
         correlationId,
       },
-      { status, headers: { "Cache-Control": "no-store" } },
+      {
+        status,
+        headers: { "Cache-Control": "no-store", "X-Request-ID": correlationId },
+      },
     );
   }
 }
 
 async function adminApi(req: Request, path: string[]): Promise<unknown> {
+  const managed = await adminCrud(req, path.join("/"));
+  if (managed !== undefined) return managed;
   if (path.join("/") === "booking-policy") {
     const s = await guard("calendar:write");
     if (req.method === "GET") return bookingPolicy();
@@ -1258,7 +1280,7 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
     return transitionBooking(b.id, "checked_in", s.user!.id);
   }
   if (resource === "packages" && method === "GET") {
-    await guard("packages:write");
+    await guard("packages:read");
     return db.package.findMany({
       include: {
         items: {
@@ -1297,6 +1319,14 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
         ),
     );
     return db.$transaction(async (tx) => {
+      if (input.sourceId) {
+        const source = await tx.package.findUnique({
+          where: { id: input.sourceId },
+        });
+        if (!source) throw new AppError(404, "ไม่พบแพ็กเกจต้นฉบับ");
+        if (source.key !== input.key)
+          throw new AppError(422, "รุ่นใหม่ต้องใช้รหัสตระกูลเดียวกับต้นฉบับ");
+      }
       const available = await tx.service.count({
         where: { id: { in: input.serviceIds }, active: true },
       });
@@ -1329,7 +1359,9 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
           },
         },
       });
-      await audit(tx, s.user!.id, "package.drafted", p.id);
+      await audit(tx, s.user!.id, "package.drafted", p.id, {
+        sourceId: input.sourceId ?? null,
+      });
       return { id: p.id, status: p.status };
     });
   }
@@ -1429,9 +1461,13 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) throw new AppError(422, "กรุณาเลือกไฟล์");
-    const mapping = z
-      .record(z.string(), z.string())
-      .parse(JSON.parse(String(form.get("mapping") ?? "{}")));
+    let mappingInput: unknown;
+    try {
+      mappingInput = JSON.parse(String(form.get("mapping") ?? "{}"));
+    } catch {
+      throw new AppError(422, "การจับคู่คอลัมน์ต้องเป็น JSON ที่ถูกต้อง");
+    }
+    const mapping = z.record(z.string(), z.string()).parse(mappingInput);
     return stageImport(file, s.user!.id, mapping);
   }
   if (resource === "imports/approve" && method === "POST") {

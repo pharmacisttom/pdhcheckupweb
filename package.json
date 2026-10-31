@@ -24,7 +24,8 @@
     "staff:expire-invitations": "tsx scripts/staff-invitation-expiry.ts",
     "email:check-domain": "node scripts/check-email-domain.mjs",
     "test:chat:e2e": "playwright test --config playwright.chat.config.ts",
-    "chat:retention": "tsx scripts/chat-retention.ts"
+    "chat:retention": "tsx scripts/chat-retention.ts",
+    "test:admin-crud:e2e": "playwright test --config playwright.admin-crud.config.ts"
   },
   "keywords": [],
   "author": "",

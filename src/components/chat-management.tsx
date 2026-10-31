@@ -295,6 +295,79 @@ export function ChatManagement({
                   e.preventDefault();
                   const f = new FormData(e.currentTarget);
                   void run(async () => {
+                    await request("admin/chat/departments", {
+                      id: value(f, "id"),
+                      name: value(f, "name"),
+                      active: f.has("active"),
+                    });
+                    await load();
+                  });
+                }}
+              >
+                <h3>เพิ่มหน่วยงาน</h3>
+                <label className="field">
+                  รหัสหน่วยงาน (a-z และ _)
+                  <input name="id" pattern="[a-z_]{2,40}" required />
+                </label>
+                <label className="field">
+                  ชื่อหน่วยงาน
+                  <input name="name" maxLength={160} required />
+                </label>
+                <label>
+                  <input name="active" type="checkbox" defaultChecked />
+                  เปิดใช้งาน
+                </label>
+                <button className="button" disabled={busy}>
+                  เพิ่มหน่วยงาน
+                </button>
+              </form>
+              {settings.departments.map((d) => (
+                <form
+                  key={d.id}
+                  className="card stack"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const f = new FormData(e.currentTarget);
+                    void run(async () => {
+                      await request("admin/chat/departments", {
+                        id: d.id,
+                        name: value(f, "name"),
+                        active: f.has("active"),
+                      });
+                      await load();
+                    });
+                  }}
+                >
+                  <p>{d.id}</p>
+                  <label className="field">
+                    ชื่อหน่วยงาน
+                    <input
+                      name="name"
+                      defaultValue={d.name}
+                      required
+                      maxLength={160}
+                    />
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      name="active"
+                      defaultChecked={d.active}
+                    />
+                    เปิดใช้งาน
+                  </label>
+                  <button className="button secondary" disabled={busy}>
+                    บันทึกหน่วยงาน
+                  </button>
+                </form>
+              ))}
+
+              <form
+                className="stack"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  void run(async () => {
                     await request("admin/chat/agents", {
                       departmentId: value(f, "departmentId"),
                       userId: value(f, "userId"),

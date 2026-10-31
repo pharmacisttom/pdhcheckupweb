@@ -1,5 +1,6 @@
 "use client";
 import * as Dialog from "@radix-ui/react-dialog";
+import { permitted } from "@/lib/permissions";
 import { staffLanding } from "@/lib/staff-roles";
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -20,8 +21,10 @@ import {
 } from "lucide-react";
 import { Brand } from "./ui";
 import { request } from "@/lib/client";
-const links = [
+const menuLinks = [
   { path: "chat", label: "Health Chat", icon: ClipboardList },
+  { path: "chat/settings", label: "ตั้งค่าและประกาศ Chat", icon: ShieldCheck },
+  { path: "chat/reports", label: "รายงาน Chat", icon: BarChart3 },
   { path: "dashboard", label: "ภาพรวมระบบ", icon: LayoutDashboard },
   { path: "appointments", label: "จัดการนัดหมาย", icon: CalendarDays },
   {
@@ -54,6 +57,31 @@ export function AdminShell({
   role: string;
   demo: boolean;
 }) {
+  const menuPermissions: Record<string, string[]> = {
+    dashboard: ["dashboard:read"],
+    appointments: ["bookings:read"],
+    "booking-control": ["calendar:write"],
+    "contact-requests": ["bookings:read"],
+    packages: ["packages:read"],
+    questionnaires: ["questionnaire:write"],
+    calendar: ["calendar:write"],
+    waitlist: ["bookings:read"],
+    "lab-pricing": ["catalog:write", "imports:approve"],
+    organizations: ["organizations:write"],
+    quotations: ["finance:read"],
+    billing: ["finance:read"],
+    reports: ["reports:read"],
+    privacy: ["privacy:read"],
+    audit: ["audit:read"],
+    chat: ["chat:read"],
+    "chat/settings": ["chat:settings.read"],
+    "chat/reports": ["chat:reports"],
+  };
+  const links = menuLinks.filter(
+    (link) =>
+      !menuPermissions[link.path] ||
+      menuPermissions[link.path].some((p) => permitted(role, p)),
+  );
   const path = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);

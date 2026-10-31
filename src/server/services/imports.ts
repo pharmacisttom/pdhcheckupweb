@@ -1,9 +1,9 @@
 import ExcelJS from "exceljs";
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { AppError, audit } from "@/lib/security";
-import { assertSafeXlsx, assertCsvRowLimit } from './import-limits';
+import { assertSafeXlsx, assertCsvRowLimit } from "./import-limits";
 const rowSchema = z
   .object({
     service_code: z.string().min(1).max(80),
@@ -66,16 +66,28 @@ export async function stageImport(
     throw new AppError(413, "ไฟล์ต้องมีขนาดไม่เกิน 2 MB");
   const data = Buffer.from(await file.arrayBuffer());
   const book = new ExcelJS.Workbook();
-  if (/\.csv$/i.test(file.name)) {
-    assertCsvRowLimit(data);
-    const { Readable } = await import("node:stream");
-    await book.csv.read(Readable.from([data]));
-  } else if (/\.xlsx$/i.test(file.name)) {
-    assertSafeXlsx(data);
-    await book.xlsx.load(
-      data as unknown as Parameters<typeof book.xlsx.load>[0],
+  try {
+    if (/\.csv$/i.test(file.name)) {
+      new TextDecoder("utf-8", { fatal: true }).decode(data);
+      assertCsvRowLimit(data);
+      const { Readable } = await import("node:stream");
+      await book.csv.read(Readable.from([data]), {
+        map: (value: string) => value,
+      });
+    } else if (/\.xlsx$/i.test(file.name)) {
+      assertSafeXlsx(data);
+      await book.xlsx.load(
+        data as unknown as Parameters<typeof book.xlsx.load>[0],
+      );
+    } else throw new AppError(422, "รองรับเฉพาะ CSV และ XLSX");
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError(
+      422,
+      "อ่านไฟล์ไม่ได้ กรุณาตรวจ CSV UTF-8 หรือ XLSX ที่ไม่มีสูตรและไม่เสียหาย",
+      "INVALID_IMPORT_FILE",
     );
-  } else throw new AppError(422, "รองรับเฉพาะ CSV และ XLSX");
+  }
   const sheet = book.worksheets[0];
   if (!sheet || sheet.rowCount > 5001)
     throw new AppError(422, "จำกัดไม่เกิน 5,000 แถวต่อไฟล์");
@@ -109,7 +121,7 @@ export async function stageImport(
   return db.$transaction(async (tx) => {
     const batch = await tx.importBatch.create({
       data: {
-        fileHash: createHash('sha256').update(data).digest('hex'),
+        fileHash: createHash("sha256").update(data).digest("hex"),
         operatorId,
         rows: valid,
         errors,
@@ -147,6 +159,17 @@ export async function approveImport(id: string, approverId: string) {
             "ชื่อหรือหมวดบริการไม่ตรงกับรหัสเดิม ต้องตรวจสอบการจับคู่: " +
               row.service_code,
           );
+        if (
+          existing &&
+          row.status === "inactive" &&
+          (await tx.packageItem.count({
+            where: { serviceId: existing.id, package: { status: "published" } },
+          }))
+        )
+          throw new AppError(
+            409,
+            "ต้องจัดการแพ็กเกจที่เผยแพร่ก่อนปิดรายการตรวจ: " + row.service_code,
+          );
         const service = await tx.service.upsert({
           where: { code: row.service_code },
           create: {
@@ -158,7 +181,12 @@ export async function approveImport(id: string, approverId: string) {
             componentCodes: [],
             active: row.status === "active",
           },
-          update: { active: row.status === "active" },
+          update: {
+            active: row.status === "active",
+            nameEn: row.service_name_en,
+            unit: row.unit,
+            revision: { increment: 1 },
+          },
         });
         await tx.$queryRaw`SELECT id FROM Service WHERE id = ${service.id} FOR UPDATE`;
         const latest = await tx.price.findFirst({
