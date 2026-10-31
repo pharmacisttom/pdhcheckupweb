@@ -121,6 +121,11 @@ export async function chatRoute(
     )
       throw new AppError(422, "หน่วยงานไม่เปิดบริการ");
     const row = await db.$transaction(async (tx) => {
+      const departments = await tx.$queryRaw<
+        { active: boolean }[]
+      >`SELECT active FROM ChatDepartment WHERE id=${v.departmentId} FOR SHARE`;
+      if (!departments[0]?.active)
+        throw new AppError(409, "หน่วยงานปิดใช้งานแล้ว");
       await tx.$queryRaw`SELECT id FROM Session WHERE id=${s.id} FOR UPDATE`;
       const old = await tx.chatConversation.findFirst({
         where: {
@@ -540,14 +545,33 @@ export async function chatRoute(
         })
         .strict(),
     );
-    await db.$transaction(async (tx) => {
-      await tx.chatDepartment.upsert({
-        where: { id: v.id },
-        create: v,
-        update: { name: v.name, active: v.active },
-      });
-      await audit(tx, actor.user!.id, "chat.department_updated", v.id);
-    });
+    await db.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM ChatDepartment WHERE id=${v.id} FOR UPDATE`;
+        if (
+          !v.active &&
+          (await tx.chatConversation.count({
+            where: {
+              departmentId: v.id,
+              deletedAt: null,
+              expiresAt: { gt: new Date() },
+              status: { in: ["bot", "queued", "active"] },
+            },
+          }))
+        )
+          throw new AppError(
+            409,
+            "ยังมีบทสนทนาที่ไม่ปิด กรุณาโอนหรือปิดเรื่องก่อนปิดหน่วยงาน",
+          );
+        await tx.chatDepartment.upsert({
+          where: { id: v.id },
+          create: v,
+          update: { name: v.name, active: v.active },
+        });
+        await audit(tx, actor.user!.id, "chat.department_updated", v.id);
+      },
+      { isolationLevel: "ReadCommitted" },
+    );
     return { ok: true };
   }
   if (resource === "admin/chat/agents" && post) {
@@ -661,6 +685,13 @@ export async function chatRoute(
     /^admin\/chat\/conversations\/([^/]+)(?:\/(reply|assign|transfer|close|reopen|note|resolve|redact|typing))?$/,
   );
   if (match) {
+    if (match[2] === "redact" && post) {
+      await guard("chat:privacy");
+      throw new AppError(
+        409,
+        "กรุณาปกปิดแชตผ่านคำร้อง PDPA ที่ตรวจตัวตนและอนุมัติให้ดำเนินการแล้ว",
+      );
+    }
     const actor = await staff(
       match[2] === "redact"
         ? "chat:privacy"
@@ -837,6 +868,13 @@ export async function chatRoute(
           },
         });
       } else if (action === "transfer") {
+        if (v.departmentId) {
+          const departments = await tx.$queryRaw<
+            { active: boolean }[]
+          >`SELECT active FROM ChatDepartment WHERE id=${v.departmentId} FOR SHARE`;
+          if (!departments[0]?.active)
+            throw new AppError(409, "หน่วยงานปลายทางปิดใช้งานแล้ว");
+        }
         if (
           !v.departmentId ||
           !(await tx.chatDepartment.findFirst({
