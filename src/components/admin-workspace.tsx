@@ -182,7 +182,6 @@ export function AdminWorkspace({ section }: { section: string }) {
                 ชื่อองค์กร
                 <input
                   name="name"
-                  defaultValue={String(editingPackage?.name ?? "")}
                   required
                   maxLength={255}
                 />
@@ -203,12 +202,15 @@ export function AdminWorkspace({ section }: { section: string }) {
               onSubmit={(e) => {
                 e.preventDefault();
                 const f = new FormData(e.currentTarget);
+                const dailyCapVal = f.get("dailyCapacity");
                 mutate(() =>
                   request("admin/slots", {
                     day: f.get("day"),
                     time: f.get("time"),
                     capacity: Number(f.get("capacity")),
-                    dailyCapacity: Number(f.get("dailyCapacity")),
+                    ...(dailyCapVal && Number(dailyCapVal) > 0
+                      ? { dailyCapacity: Number(dailyCapVal) }
+                      : {}),
                   }),
                 );
               }}
@@ -239,11 +241,10 @@ export function AdminWorkspace({ section }: { section: string }) {
                   min={1}
                   max={2000}
                   name="dailyCapacity"
-                  required
                 />
               </label>
               <p className="full">
-                ช่วงเวลายาว 1 ชั่วโมง ความจุรายวันต้องตรงกับค่าที่กำหนดไว้เดิม
+                ช่วงเวลายาว 1 ชั่วโมง ความจุรายวันเว้นว่างได้หากใช้วันเดิม (หากระบุต้องตรงกับค่าเดิม)
               </p>
               <button className="button" disabled={busy}>
                 บันทึกช่วงเวลา

@@ -195,13 +195,21 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
           reservedCapacity: Number(f.get("reservedCapacity")),
           closed: f.has("closed"),
         };
-      if (kind === "waitlist")
+      if (kind === "waitlist") {
+        const st = text("status");
+        const ref = text("bookingReference");
+        if (st === "scheduled" && !ref) {
+          setError("กรุณาระบุเลขนัดจริงเมื่อเปลี่ยนสถานะเป็นมีนัด");
+          setBusy(false);
+          return;
+        }
         body = {
           ...body,
-          status: text("status"),
+          status: st,
           assigneeId: text("assigneeId") || null,
-          bookingReference: text("bookingReference"),
+          bookingReference: ref || undefined,
         };
+      }
       if (kind === "privacy")
         body = {
           ...body,
@@ -211,11 +219,18 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
           confirmed: f.has("confirmed"),
         };
       if (kind === "finance") {
+        const action = text("action");
+        const ref = text("reference");
+        if (["payment", "refund"].includes(action) && !ref) {
+          setError("ต้องระบุหลักฐานรับชำระ/คืนเงิน");
+          setBusy(false);
+          return;
+        }
         body = {
           ...body,
-          action: text("action"),
-          amount: text("amount"),
-          reference: text("reference"),
+          action,
+          amount: text("amount") || "0",
+          reference: ref,
         };
         const canonical = JSON.stringify(body);
         if (pending.current?.body !== canonical)
@@ -227,13 +242,17 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
           name: text("name"),
           contact: text("contact"),
         });
-      else if (creating && kind === "slots")
+      else if (creating && kind === "slots") {
+        const dailyCapVal = f.get("dailyCapacity");
         await request("admin/slots", {
           day: text("day"),
           time: text("time"),
           capacity: Number(f.get("capacity")),
-          dailyCapacity: Number(f.get("dailyCapacity")),
+          ...(dailyCapVal && Number(dailyCapVal) > 0
+            ? { dailyCapacity: Number(dailyCapVal) }
+            : {}),
         });
+      }
       else await request(endpoint + (creating ? "" : "/" + selected!.id), body);
       setOpen(false);
       pending.current = null;
@@ -273,6 +292,7 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
         name={key}
         defaultValue={initial(key)}
         required={required}
+        minLength={key === "reason" ? 3 : undefined}
         maxLength={
           key === "preparation" ? 3000 : key === "contact" ? 1000 : 1500
         }
@@ -565,8 +585,9 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
                       <>
                         {input("day", "วันให้บริการ", { type: "date" })}
                         {input("time", "เวลาเริ่มต้น (ไทย)", { type: "time" })}
-                        {input("dailyCapacity", "ความจุรายวัน", {
+                        {input("dailyCapacity", "ความจุรวมรายวัน (เว้นว่างได้หากใช้วันเดิม)", {
                           type: "number",
+                          required: false,
                         })}
                       </>
                     )}
@@ -629,7 +650,7 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
                       "bill",
                     )}
                     {input("amount", "ยอดเงิน (ยกเลิกเอกสารให้ระบุ 0)")}
-                    {input("reference", "เลขหลักฐาน/เอกสารอ้างอิง", {
+                    {input("reference", "เลขหลักฐาน/เอกสารอ้างอิง (จำเป็นเมื่อรับชำระหรือคืนเงิน)", {
                       required: false,
                       maxLength: 200,
                     })}

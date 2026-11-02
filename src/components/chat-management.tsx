@@ -59,7 +59,21 @@ export function ChatManagement({
     [error, setError] = useState(""),
     [status, setStatus] = useState(""),
     [busy, setBusy] = useState(false),
-    [report, setReport] = useState<Record<string, unknown> | null>(null);
+    [report, setReport] = useState<Record<string, unknown> | null>(null),
+    [defaultDates] = useState(() => {
+      const now = new Date();
+      const nextYear = new Date(now.getTime() + 365 * 86400000);
+      return {
+        startsAt: new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+          .toISOString()
+          .slice(0, 16),
+        expiresAt: new Date(
+          nextYear.getTime() - nextYear.getTimezoneOffset() * 60000,
+        )
+          .toISOString()
+          .slice(0, 16),
+      };
+    });
   const [editing, setEditing] = useState<Version | null>(null);
   const localDate = (v: string) => {
     const d = new Date(v);
@@ -428,21 +442,31 @@ export function ChatManagement({
               e.preventDefault();
               const f = new FormData(e.currentTarget);
               void run(async () => {
+                const sAt = value(f, "startsAt");
+                const eAt = value(f, "expiresAt");
+                const startsDate = sAt ? new Date(sAt) : new Date();
+                const expiresDate = eAt
+                  ? new Date(eAt)
+                  : new Date(Date.now() + 365 * 86400000);
+                if (isNaN(startsDate.getTime()) || isNaN(expiresDate.getTime())) {
+                  setError("กรุณาระบุวันเริ่มเผยแพร่และวันหมดอายุที่ถูกต้อง");
+                  return;
+                }
                 const data = {
                   ...(editing ? { knowledgeId: editing.knowledgeId } : {}),
-                  departmentId: value(f, "departmentId"),
-                  topicKey: value(f, "topicKey"),
-                  category: value(f, "category"),
+                  departmentId: value(f, "departmentId").trim(),
+                  topicKey: value(f, "topicKey").trim(),
+                  category: value(f, "category").trim(),
                   clinical: f.has("clinical"),
                   visibility: editing?.knowledge.visibility ?? "public",
-                  question: value(f, "question"),
-                  answer: value(f, "answer"),
+                  question: value(f, "question").trim(),
+                  answer: value(f, "answer").trim(),
                   keywords: value(f, "keywords")
                     .split(",")
                     .map((s) => s.trim())
                     .filter(Boolean),
-                  startsAt: new Date(value(f, "startsAt")).toISOString(),
-                  expiresAt: new Date(value(f, "expiresAt")).toISOString(),
+                  startsAt: startsDate.toISOString(),
+                  expiresAt: expiresDate.toISOString(),
                 };
                 const file = f.get("file");
                 if (file instanceof File && file.size) {
@@ -527,7 +551,9 @@ export function ChatManagement({
                 type="datetime-local"
                 name="startsAt"
                 required
-                defaultValue={editing ? localDate(editing.startsAt) : undefined}
+                defaultValue={
+                  editing ? localDate(editing.startsAt) : defaultDates.startsAt
+                }
               />
             </label>
             <label className="field">
@@ -538,7 +564,9 @@ export function ChatManagement({
                 name="expiresAt"
                 required
                 defaultValue={
-                  editing ? localDate(editing.expiresAt) : undefined
+                  editing
+                    ? localDate(editing.expiresAt)
+                    : defaultDates.expiresAt
                 }
               />
             </label>
@@ -571,34 +599,41 @@ export function ChatManagement({
               </p>
               <p style={{ whiteSpace: "pre-wrap" }}>{v.answer}</p>
               <div className="chat-actions">
-                {["submit", "approve", "reject", "publish", "archive"].map(
-                  (action) => (
-                    <button
-                      className="button secondary"
-                      key={action}
-                      disabled={busy}
-                      onClick={() =>
-                        void run(async () => {
-                          await request(
-                            "admin/chat/knowledge/" + v.id + "/" + action,
-                            {},
-                          );
-                          await load();
-                        })
-                      }
-                    >
+                {(
+                  {
+                    draft: ["submit", "archive"],
+                    pending_review: ["approve", "reject", "archive"],
+                    approved: ["publish", "archive"],
+                    rejected: ["archive"],
+                    published: ["archive"],
+                    archived: [] as string[],
+                  }[v.status] ?? ["archive"]
+                ).map((action) => (
+                  <button
+                    className="button secondary"
+                    key={action}
+                    disabled={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        await request(
+                          "admin/chat/knowledge/" + v.id + "/" + action,
+                          {},
+                        );
+                        await load();
+                      })
+                    }
+                  >
+                    {
                       {
-                        {
-                          submit: "ส่งทบทวน",
-                          approve: "อนุมัติ",
-                          reject: "ส่งกลับ",
-                          publish: "เผยแพร่",
-                          archive: "เก็บเข้าคลัง",
-                        }[action]
-                      }
-                    </button>
-                  ),
-                )}
+                        submit: "ส่งทบทวน",
+                        approve: "อนุมัติ",
+                        reject: "ส่งกลับ",
+                        publish: "เผยแพร่",
+                        archive: "เก็บเข้าคลัง",
+                      }[action]
+                    }
+                  </button>
+                ))}
               </div>
             </article>
           ))}

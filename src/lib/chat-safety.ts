@@ -23,7 +23,7 @@ export function chatSafetyReason(text: string): string | null {
   )
     return "safety";
   if (
-    /ยา(?!บาล)|\b\d{13}\b|\b0[689]\d{8}\b|[\w.+-]+@[\w.-]+\.[a-z]{2,}|ผลตรวจ|ค่าเลือด|ผมเป็น|ฉันเป็น|ผมมีอาการ|ฉันมีอาการ|ตั้งครรภ์|หยุดยา|เพิ่มยา|ปรับยา|กินยา|ทานยา|วินิจฉัย/i.test(
+    /ยา(?!บาล)|\b\d{13}\b|\b0[689]\d{8}\b|[\w.+-]+@[\w.-]+\.[a-z]{2,}|ผลตรวจของ(ผม|ฉัน|เรา|ตนเอง)|(ขอ|ดู|เช็ค|ตรวจ)ผลตรวจ(ของ)?|ผลตรวจ.*ออกหรือยัง|ค่าเลือด|ผมเป็น|ฉันเป็น|ผมมีอาการ|ฉันมีอาการ|ตั้งครรภ์|หยุดยา|เพิ่มยา|ปรับยา|กินยา|ทานยา|วินิจฉัย/i.test(
       text,
     )
   )
@@ -47,25 +47,72 @@ export function relevantEvidence<T extends Evidence>(
   records: T[],
 ): { matches: T[]; reason: string } {
   const input = normalizeChat(text);
-  const matches = records.filter((r) => {
+  if (!input) return { matches: [], reason: "insufficient_evidence" };
+
+  const scored: { record: T; score: number }[] = [];
+
+  for (const r of records) {
+    const qNorm = normalizeChat(r.question);
     const words = Array.isArray(r.keywords)
       ? r.keywords.filter(
           (w): w is string =>
             typeof w === "string" && normalizeChat(w).length >= 2,
         )
       : [];
-    return (
-      normalizeChat(r.question) === input ||
-      new Set(words.filter((w) => input.includes(normalizeChat(w)))).size >= 2
+    const matchedWords = new Set(
+      words.filter((w) => input.includes(normalizeChat(w))),
     );
-  });
-  if (!matches.length) return { matches: [], reason: "insufficient_evidence" };
-  if (new Set(matches.map((r) => normalizeChat(r.answer))).size > 1)
+    const distinctWords = matchedWords.size;
+    const isExact = qNorm === input;
+    const isPartial =
+      (input.length >= 6 && qNorm.includes(input)) ||
+      (qNorm.length >= 6 && input.includes(qNorm));
+
+    // Must be exact question match, substantial question match, or have at least 2 distinct approved keywords
+    if (!isExact && !isPartial && distinctWords < 2) continue;
+
+    let score = distinctWords * 100;
+    if (isExact) {
+      score += 1000;
+    } else if (isPartial) {
+      score += 400;
+    }
+
+    scored.push({ record: r, score });
+  }
+
+  if (!scored.length) return { matches: [], reason: "insufficient_evidence" };
+
+  // Sort by relevance score descending
+  scored.sort((a, b) => b.score - a.score);
+
+  const topScore = scored[0].score;
+  const topMatches = scored
+    .filter((s) => s.score === topScore)
+    .map((s) => s.record);
+
+  // If tied top matches have conflicting answers
+  if (new Set(topMatches.map((r) => normalizeChat(r.answer))).size > 1) {
     return { matches: [], reason: "conflicting_evidence" };
-  return { matches: matches.slice(0, 3), reason: "approved_extract" };
+  }
+
+  // If top candidate is clear or candidates share same answer
+  const dominant = scored.length === 1 || scored[0].score >= scored[1].score * 1.5;
+  if (dominant) {
+    return { matches: [scored[0].record], reason: "approved_extract" };
+  }
+
+  // If closely scored candidates share different answers
+  const topCandidates = scored.slice(0, 3).map((s) => s.record);
+  if (new Set(topCandidates.map((r) => normalizeChat(r.answer))).size > 1) {
+    return { matches: [], reason: "conflicting_evidence" };
+  }
+
+  return { matches: topCandidates, reason: "approved_extract" };
 }
 export function safeKnowledge(text: string) {
   return !/ignore.{0,30}instructions|system prompt|ข้ามกฎ|ลืมคำสั่ง|api.?key|exfiltrat/i.test(
     text,
   );
 }
+

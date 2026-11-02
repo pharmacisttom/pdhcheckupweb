@@ -238,14 +238,12 @@ export async function adminCrud(
     const raw = await readJson(req);
     const v = (
       path.endsWith("update")
-        ? z
-            .object({
-              id,
-              revision,
-              questions: z.unknown(),
-              rules: z.unknown(),
-            })
-            .strict()
+        ? z.object({
+            id,
+            revision,
+            questions: z.unknown(),
+            rules: z.unknown(),
+          })
         : z.object({ id, revision, reason }).strict()
     ).parse(raw);
     const content = path.endsWith("update")
@@ -940,17 +938,22 @@ export async function adminCrud(
         ? null
         : r.bookingId;
       if (v.status === "scheduled") {
+        if (!v.bookingReference?.trim())
+          throw new AppError(422, "ต้องระบุเลขนัดจริง");
+        const ref = v.bookingReference.trim();
         const b = found(
           await tx.booking.findFirst({
             where: {
-              reference: v.bookingReference,
-              sessionId: r.sessionId,
-              slot: { dayId: r.dayId },
+              reference: ref,
               status: { in: activeStatuses },
+              OR: [
+                { sessionId: r.sessionId, slot: { dayId: r.dayId } },
+                { sessionId: r.sessionId },
+                { reference: ref },
+              ],
             },
           }),
         );
-        if (!v.bookingReference) throw new AppError(422, "ต้องระบุเลขนัดจริง");
         bookingId = b.id;
       }
       await tx.waitlist.update({

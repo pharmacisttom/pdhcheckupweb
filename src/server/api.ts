@@ -1396,17 +1396,24 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
         day: z.iso.date(),
         time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
         capacity: z.number().int().min(1).max(500),
-        dailyCapacity: z.number().int().min(1).max(2000),
+        dailyCapacity: z.number().int().min(1).max(2000).optional(),
       }),
     );
     return db.$transaction(async (tx) => {
-      const day = await tx.dayCapacity.upsert({
-        where: { id: input.day },
-        create: { id: input.day, capacity: input.dailyCapacity },
-        update: {},
-      });
-      if (day.capacity !== input.dailyCapacity)
+      let day = await tx.dayCapacity.findUnique({ where: { id: input.day } });
+      if (!day) {
+        day = await tx.dayCapacity.create({
+          data: {
+            id: input.day,
+            capacity: input.dailyCapacity ?? Math.max(input.capacity, 20),
+          },
+        });
+      } else if (
+        input.dailyCapacity !== undefined &&
+        day.capacity !== input.dailyCapacity
+      ) {
         throw new AppError(409, "ความจุรายวันเดิมไม่ตรง กรุณาตรวจสอบ");
+      }
       const startsAt = new Date(input.day + "T" + input.time + ":00+07:00");
       const slot = await tx.slot.create({
         data: {

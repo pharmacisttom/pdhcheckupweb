@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CHAT_NOTICE, chatSafetyReason } from "@/lib/chat-safety";
 import { hash } from "@/lib/security";
+import { locales, type Locale } from "@/lib/i18n";
 import {
   db,
   AppError,
@@ -30,6 +31,38 @@ import {
 } from "./knowledge";
 import { extractKnowledge } from "./import";
 import { chooseEvidence } from "./ai";
+
+async function detectLocale(
+  sessionId?: string,
+  requested?: string | null,
+): Promise<Locale> {
+  if (requested && locales.includes(requested as Locale)) {
+    return requested as Locale;
+  }
+  if (sessionId) {
+    const reg = await db.registration.findFirst({
+      where: { ownerSessionId: sessionId, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (reg) {
+      try {
+        const draft = decrypt<{ person?: { locale?: string } }>(
+          reg.draftEncrypted,
+        );
+        if (
+          draft?.person?.locale &&
+          locales.includes(draft.person.locale as Locale)
+        ) {
+          return draft.person.locale as Locale;
+        }
+      } catch {
+        // ignore decryption error
+      }
+    }
+  }
+  return "th";
+}
+
 const id = z.string().min(1).max(191),
   messageInput = z
     .object({
@@ -53,8 +86,14 @@ export async function chatRoute(
     if (process.env.CHAT_ENABLED !== "true") return { enabled: false };
     try {
       const c = await publicReady();
+      const s = await session();
+      const userLocale = await detectLocale(
+        s?.id,
+        url.searchParams.get("locale"),
+      );
       return {
         enabled: true,
+        locale: userLocale,
         notice: CHAT_NOTICE,
         noticeText: c.noticeText,
         noticeVersion: c.noticeVersion,
@@ -68,7 +107,7 @@ export async function chatRoute(
           where: { active: true },
           select: { id: true, name: true },
         }),
-        questions: (await eligibleEvidence())
+        questions: (await eligibleEvidence(undefined, userLocale))
           .slice(0, 5)
           .map((v) => ({ id: v.id, question: v.question })),
       };
@@ -247,7 +286,11 @@ export async function chatRoute(
       return publicState(
         await db.chatConversation.findUniqueOrThrow({ where: { id: row.id } }),
       );
-    const evidence = await retrieve(v.text, row.departmentId);
+    const userLocale = await detectLocale(
+      s.id,
+      url.searchParams.get("locale"),
+    );
+    const evidence = await retrieve(v.text, row.departmentId, userLocale);
     if (!evidence.matches.length) {
       await db.$transaction(async (tx) =>
         handoff(tx, await lock(tx, row.id), evidence.reason, s.id),

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { MessageCircle, X } from "lucide-react";
 import { request } from "@/lib/client";
+import { useLanguage } from "./language-provider";
 type Message = {
   id: string;
   sequence: number;
@@ -31,6 +32,7 @@ type Config = {
 };
 export function ChatWidget() {
   const path = usePathname();
+  const { locale, t } = useLanguage();
   const [config, setConfig] = useState<Config | null>(null),
     [open, setOpen] = useState(false),
     [thread, setThread] = useState<Thread | null>(null),
@@ -46,10 +48,10 @@ export function ChatWidget() {
     path.startsWith("/auth/") ||
     ["/login", "/invite", "/forgot-password", "/reset-password"].includes(path);
   useEffect(() => {
-    request<Config>("chat/config")
+    request<Config>(`chat/config?locale=${locale}`)
       .then(setConfig)
       .catch(() => setConfig(null));
-  }, []);
+  }, [locale]);
   function merge(t: Thread) {
     setThread(t);
     setMessages((old) =>
@@ -119,7 +121,7 @@ export function ChatWidget() {
           ? pending.current
           : { text: value, id: crypto.randomUUID() };
       pending.current = p;
-      const t = await request<Thread>("chat/messages", {
+      const t = await request<Thread>(`chat/messages?locale=${locale}`, {
         conversationId: thread!.id,
         clientId: p.id,
         text: value,
@@ -133,9 +135,9 @@ export function ChatWidget() {
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
-        <button className="chat-launcher" aria-label="เปิด PDH Health Chat">
+        <button className="chat-launcher" aria-label={t("เปิด PDH Health Chat")}>
           <MessageCircle size={22} />
-          <span>สอบถามข้อมูล</span>
+          <span>{t("สอบถามข้อมูล")}</span>
         </button>
       </Dialog.Trigger>
       <Dialog.Portal>
@@ -147,7 +149,7 @@ export function ChatWidget() {
           <header>
             <Dialog.Title>PDH Health Chat</Dialog.Title>
             <Dialog.Close asChild>
-              <button className="button ghost" aria-label="ปิดแชต">
+              <button className="button ghost" aria-label={t("ปิดแชต")}>
                 <X />
               </button>
             </Dialog.Close>
@@ -166,20 +168,19 @@ export function ChatWidget() {
                   setError("");
                 }}
               >
-                เริ่มใหม่
+                {t("เริ่มใหม่")}
               </button>
             </p>
           )}
           {!thread ? (
             <div className="stack chat-consent">
               <p>
-                สวัสดีค่ะ สอบถามแพ็กเกจ การเตรียมตัว และขั้นตอนรับบริการได้
-                หากต้องการติดต่อเจ้าหน้าที่ แจ้งได้ทันที
+                {t("สวัสดีค่ะ สอบถามแพ็กเกจ การเตรียมตัว และขั้นตอนรับบริการได้ หากต้องการติดต่อเจ้าหน้าที่ แจ้งได้ทันที")}
               </p>
               <p className="chat-policy">{config.noticeText}</p>
-              <p>เก็บประวัติตามประกาศที่อนุมัติ {config.retentionDays} วัน</p>
+              <p>{t("เก็บประวัติตามประกาศที่อนุมัติ")} {config.retentionDays} {t("วัน")}</p>
               <label className="field">
-                หน่วยงาน
+                {t("หน่วยงาน")}
                 <select
                   value={department}
                   onChange={(e) => setDepartment(e.target.value)}
@@ -197,7 +198,7 @@ export function ChatWidget() {
                   checked={ack}
                   onChange={(e) => setAck(e.target.checked)}
                 />
-                รับทราบประกาศแชตและการส่งต่อเจ้าหน้าที่
+                {t("รับทราบประกาศแชตและการส่งต่อเจ้าหน้าที่")}
               </label>
               <button
                 className="button"
@@ -217,7 +218,7 @@ export function ChatWidget() {
                   })
                 }
               >
-                เริ่มสนทนา
+                {t("เริ่มสนทนา")}
               </button>
             </div>
           ) : (
@@ -225,18 +226,18 @@ export function ChatWidget() {
               <p role="status">
                 {thread.status === "bot"
                   ? config.aiEnabled
-                    ? "ผู้ช่วยข้อมูลจากแหล่งที่อนุมัติ"
-                    : "ค้นหา FAQ ที่อนุมัติ"
+                    ? t("ผู้ช่วยข้อมูลจากแหล่งที่อนุมัติ")
+                    : t("ค้นหา FAQ ที่อนุมัติ")
                   : thread.status === "queued"
-                    ? "รอเจ้าหน้าที่ · ลำดับคิว " + thread.queuePosition
+                    ? t("รอเจ้าหน้าที่ · ลำดับคิว ") + thread.queuePosition
                     : thread.status === "active"
-                      ? "เจ้าหน้าที่รับช่วงแล้ว"
-                      : "จบบทสนทนาแล้ว"}
+                      ? t("เจ้าหน้าที่รับช่วงแล้ว")
+                      : t("จบบทสนทนาแล้ว")}
               </p>
               <div
                 className="chat-messages"
                 role="log"
-                aria-label="ข้อความสนทนา"
+                aria-label={t("ข้อความสนทนา")}
                 aria-live="polite"
               >
                 {messages.map((m) => (
@@ -246,12 +247,12 @@ export function ChatWidget() {
                   >
                     <strong>
                       {m.authorType === "user"
-                        ? "คุณ"
+                        ? t("คุณ")
                         : m.authorType === "staff"
-                          ? "เจ้าหน้าที่"
+                          ? t("เจ้าหน้าที่")
                           : m.authorType === "assistant"
-                            ? "ผู้ช่วยข้อมูล"
-                            : "ระบบ"}
+                            ? t("ผู้ช่วยข้อมูล")
+                            : t("ระบบ")}
                     </strong>
                     <p>{m.text}</p>
                     {m.citations.map((c) => (
@@ -261,13 +262,17 @@ export function ChatWidget() {
                         target="_blank"
                         rel="noreferrer"
                       >
-                        อ้างอิง: {c.title} รุ่น {c.version}
+                        {t("อ้างอิง: ")}{c.title}{t(" รุ่น ")}{c.version}
                       </a>
                     ))}
                   </article>
                 ))}
                 {(busy || thread.typing) && (
-                  <p role="status">{thread.status === "active" ? "เจ้าหน้าที่กำลังพิมพ์…" : "กำลังค้นหาข้อมูล…"}</p>
+                  <p role="status">
+                    {thread.status === "active"
+                      ? t("เจ้าหน้าที่กำลังพิมพ์…")
+                      : t("กำลังค้นหาข้อมูล…")}
+                  </p>
                 )}
               </div>
               {!messages.length && (
@@ -294,7 +299,7 @@ export function ChatWidget() {
                     }}
                   >
                     <label className="sr-only" htmlFor="chat-message">
-                      ข้อความถึงผู้ช่วย/เจ้าหน้าที่
+                      {t("ข้อความถึงผู้ช่วย/เจ้าหน้าที่")}
                     </label>
                     <textarea
                       id="chat-message"
@@ -302,10 +307,10 @@ export function ChatWidget() {
                       maxLength={2000}
                       rows={2}
                       onChange={(e) => setText(e.target.value)}
-                      placeholder="ไม่ส่งเลขบัตร ผลตรวจ หรือข้อมูลสุขภาพส่วนตัว"
+                      placeholder={t("ไม่ส่งเลขบัตร ผลตรวจ หรือข้อมูลสุขภาพส่วนตัว")}
                     />
                     <button className="button" disabled={busy || !text.trim()}>
-                      ส่ง
+                      {t("ส่ง")}
                     </button>
                   </form>
                   <div className="chat-actions">
@@ -322,7 +327,7 @@ export function ChatWidget() {
                         )
                       }
                     >
-                      ขอคุยกับเจ้าหน้าที่
+                      {t("ขอคุยกับเจ้าหน้าที่")}
                     </button>
                     <button
                       className="button secondary"
@@ -335,14 +340,14 @@ export function ChatWidget() {
                         })
                       }
                     >
-                      จบแชต
+                      {t("จบแชต")}
                     </button>
                   </div>
                 </>
               ) : (
                 <>
                   <label className="field">
-                    ประเมินความพึงพอใจ
+                    {t("ประเมินความพึงพอใจ")}
                     <select
                       defaultValue=""
                       onChange={(e) => {
@@ -355,7 +360,7 @@ export function ChatWidget() {
                           });
                       }}
                     >
-                      <option value="">เลือกคะแนน</option>
+                      <option value="">{t("เลือกคะแนน")}</option>
                       {[1, 2, 3, 4, 5].map((n) => (
                         <option key={n}>{n}</option>
                       ))}
@@ -369,7 +374,7 @@ export function ChatWidget() {
                       cursor.current = 0;
                     }}
                   >
-                    เริ่มบทสนทนาใหม่
+                    {t("เริ่มบทสนทนาใหม่")}
                   </button>
                 </>
               )}
