@@ -211,8 +211,10 @@ async function main() {
       });
     }
   }
+  const { seedHealthChat } = await import("../scripts/seed-health-chat");
+  const chatSeed = await seedHealthChat(db, admin.id);
   console.log(
-    "Synthetic development catalog, questionnaire, slots and operator created. No patient data seeded.",
+    `Synthetic development catalog, questionnaire, slots, and ${chatSeed.knowledgeItems} health chat QA items seeded. No patient data seeded.`,
   );
 }
 main().finally(() => db.$disconnect());

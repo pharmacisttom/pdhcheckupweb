@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CHAT_NOTICE, chatSafetyReason } from "@/lib/chat-safety";
 import { hash } from "@/lib/security";
+import { locales, type Locale } from "@/lib/i18n";
 import {
   db,
   AppError,
@@ -30,6 +31,38 @@ import {
 } from "./knowledge";
 import { extractKnowledge } from "./import";
 import { chooseEvidence } from "./ai";
+
+async function detectLocale(
+  sessionId?: string,
+  requested?: string | null,
+): Promise<Locale> {
+  if (requested && locales.includes(requested as Locale)) {
+    return requested as Locale;
+  }
+  if (sessionId) {
+    const reg = await db.registration.findFirst({
+      where: { ownerSessionId: sessionId, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (reg) {
+      try {
+        const draft = decrypt<{ person?: { locale?: string } }>(
+          reg.draftEncrypted,
+        );
+        if (
+          draft?.person?.locale &&
+          locales.includes(draft.person.locale as Locale)
+        ) {
+          return draft.person.locale as Locale;
+        }
+      } catch {
+        // ignore decryption error
+      }
+    }
+  }
+  return "th";
+}
+
 const id = z.string().min(1).max(191),
   messageInput = z
     .object({
@@ -53,8 +86,14 @@ export async function chatRoute(
     if (process.env.CHAT_ENABLED !== "true") return { enabled: false };
     try {
       const c = await publicReady();
+      const s = await session();
+      const userLocale = await detectLocale(
+        s?.id,
+        url.searchParams.get("locale"),
+      );
       return {
         enabled: true,
+        locale: userLocale,
         notice: CHAT_NOTICE,
         noticeText: c.noticeText,
         noticeVersion: c.noticeVersion,
@@ -68,7 +107,7 @@ export async function chatRoute(
           where: { active: true },
           select: { id: true, name: true },
         }),
-        questions: (await eligibleEvidence())
+        questions: (await eligibleEvidence(undefined, userLocale))
           .slice(0, 5)
           .map((v) => ({ id: v.id, question: v.question })),
       };
@@ -121,6 +160,11 @@ export async function chatRoute(
     )
       throw new AppError(422, "หน่วยงานไม่เปิดบริการ");
     const row = await db.$transaction(async (tx) => {
+      const departments = await tx.$queryRaw<
+        { active: boolean }[]
+      >`SELECT active FROM ChatDepartment WHERE id=${v.departmentId} FOR SHARE`;
+      if (!departments[0]?.active)
+        throw new AppError(409, "หน่วยงานปิดใช้งานแล้ว");
       await tx.$queryRaw`SELECT id FROM Session WHERE id=${s.id} FOR UPDATE`;
       const old = await tx.chatConversation.findFirst({
         where: {
@@ -242,7 +286,11 @@ export async function chatRoute(
       return publicState(
         await db.chatConversation.findUniqueOrThrow({ where: { id: row.id } }),
       );
-    const evidence = await retrieve(v.text, row.departmentId);
+    const userLocale = await detectLocale(
+      s.id,
+      url.searchParams.get("locale"),
+    );
+    const evidence = await retrieve(v.text, row.departmentId, userLocale);
     if (!evidence.matches.length) {
       await db.$transaction(async (tx) =>
         handoff(tx, await lock(tx, row.id), evidence.reason, s.id),
@@ -540,14 +588,33 @@ export async function chatRoute(
         })
         .strict(),
     );
-    await db.$transaction(async (tx) => {
-      await tx.chatDepartment.upsert({
-        where: { id: v.id },
-        create: v,
-        update: { name: v.name, active: v.active },
-      });
-      await audit(tx, actor.user!.id, "chat.department_updated", v.id);
-    });
+    await db.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM ChatDepartment WHERE id=${v.id} FOR UPDATE`;
+        if (
+          !v.active &&
+          (await tx.chatConversation.count({
+            where: {
+              departmentId: v.id,
+              deletedAt: null,
+              expiresAt: { gt: new Date() },
+              status: { in: ["bot", "queued", "active"] },
+            },
+          }))
+        )
+          throw new AppError(
+            409,
+            "ยังมีบทสนทนาที่ไม่ปิด กรุณาโอนหรือปิดเรื่องก่อนปิดหน่วยงาน",
+          );
+        await tx.chatDepartment.upsert({
+          where: { id: v.id },
+          create: v,
+          update: { name: v.name, active: v.active },
+        });
+        await audit(tx, actor.user!.id, "chat.department_updated", v.id);
+      },
+      { isolationLevel: "ReadCommitted" },
+    );
     return { ok: true };
   }
   if (resource === "admin/chat/agents" && post) {
@@ -661,6 +728,13 @@ export async function chatRoute(
     /^admin\/chat\/conversations\/([^/]+)(?:\/(reply|assign|transfer|close|reopen|note|resolve|redact|typing))?$/,
   );
   if (match) {
+    if (match[2] === "redact" && post) {
+      await guard("chat:privacy");
+      throw new AppError(
+        409,
+        "กรุณาปกปิดแชตผ่านคำร้อง PDPA ที่ตรวจตัวตนและอนุมัติให้ดำเนินการแล้ว",
+      );
+    }
     const actor = await staff(
       match[2] === "redact"
         ? "chat:privacy"
@@ -837,6 +911,13 @@ export async function chatRoute(
           },
         });
       } else if (action === "transfer") {
+        if (v.departmentId) {
+          const departments = await tx.$queryRaw<
+            { active: boolean }[]
+          >`SELECT active FROM ChatDepartment WHERE id=${v.departmentId} FOR SHARE`;
+          if (!departments[0]?.active)
+            throw new AppError(409, "หน่วยงานปลายทางปิดใช้งานแล้ว");
+        }
         if (
           !v.departmentId ||
           !(await tx.chatDepartment.findFirst({

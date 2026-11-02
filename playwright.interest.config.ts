@@ -8,7 +8,7 @@ url.pathname = "/pdh_healthcheck_test";
 process.env.DATABASE_URL = url.toString();
 process.env.APP_URL = "http://localhost:3037";
 process.env.OTP_PROVIDER = "test";
-process.env.PDH_TEST_DIST_DIR = ".local/next-interest";
+process.env.PDH_TEST_DIST_DIR ??= ".local/next-interest";
 export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: "interest-workflow.spec.ts",
