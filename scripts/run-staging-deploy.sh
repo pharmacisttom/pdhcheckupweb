@@ -7,9 +7,10 @@
 set -Eeuo pipefail
 
 EXPECTED_BRANCH="feature/staging-uat"
-DEFAULT_COMMIT="568641f"
 TARGET_COMMIT="${1:-}"
-EXPECTED_MIGRATION_DIGEST="58cb2e90c0dba07ea718a4e4f2e661da3401ff58d404137cae9def478266d812"
+# Independently approved migration set digest (Must NOT be dynamically assigned from unverified calculation)
+INDEPENDENTLY_APPROVED_MIGRATION_DIGEST="58cb2e90c0dba07ea718a4e4f2e661da3401ff58d404137cae9def478266d812"
+
 BACKUP_FILE="/var/backups/pdhcheckup/staging/pdh_healthcheck_staging_pre_uat_20261103_083533.sql"
 SOURCE_DIR="/var/www/pdhcheckup/source"
 STAGING_ENV_FILE="/var/www/pdhcheckup/shared/staging/.env"
@@ -112,16 +113,34 @@ git reset --hard "$TARGET_COMMIT"
 ACTUAL_COMMIT=$(git rev-parse HEAD)
 log_pass "Source checkout verified at commit: $ACTUAL_COMMIT"
 
-# 1.5 Verify Migration Digest Against Approved Set
-CALCULATED_DIGEST=$(git archive "$ACTUAL_COMMIT" prisma/migrations | tar -x -O 2>/dev/null | sha256sum 2>/dev/null | cut -d' ' -f1 || echo "")
-log_info "Migration set digest: $EXPECTED_MIGRATION_DIGEST"
+# 1.5 Independent Migration Digest Verification using deploy.sh's exact algorithm
+log_info "Independently calculating migration digest using deploy.sh exact algorithm..."
+MIG_TMP=$(mktemp -d)
+git archive "$ACTUAL_COMMIT" prisma/migrations | tar -x -C "$MIG_TMP"
+CALCULATED_DIGEST=$(cd "$MIG_TMP" && find prisma/migrations -type f -name migration.sql -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+MIGRATION_TREE_SHA=$(git rev-parse "$ACTUAL_COMMIT:prisma/migrations")
+rm -rf "$MIG_TMP"
+
+log_info "Migration Tree SHA:  $MIGRATION_TREE_SHA"
+log_info "Approved Digest:     $INDEPENDENTLY_APPROVED_MIGRATION_DIGEST"
+log_info "Calculated Digest:   $CALCULATED_DIGEST"
+
+# Strict Fail-Closed Check: Calculated digest must match independently approved digest exactly
+if [[ "$CALCULATED_DIGEST" != "$INDEPENDENTLY_APPROVED_MIGRATION_DIGEST" ]]; then
+  echo -e "\n🛑 CRITICAL MIGRATION DIGEST MISMATCH (FAIL-CLOSED)!" >&2
+  echo -e "   Expected (Approved): $INDEPENDENTLY_APPROVED_MIGRATION_DIGEST" >&2
+  echo -e "   Calculated from Git: $CALCULATED_DIGEST" >&2
+  echo -e "   Tree SHA:            $MIGRATION_TREE_SHA" >&2
+  die "Deployment aborted: Migration set does not match approved digest. Do NOT modify migration SQL merely to force a hash match."
+fi
+log_pass "Migration digest independently verified and matched ($CALCULATED_DIGEST)"
 
 # ------------------------------------------------------------------------------
 # Phase 2: Build & Deploy to Staging Structure
 # ------------------------------------------------------------------------------
 echo -e "\n[PHASE 2] Building and Deploying Staging Release..."
 
-export APPROVED_MIGRATIONS_SHA256="$EXPECTED_MIGRATION_DIGEST"
+export APPROVED_MIGRATIONS_SHA256="$INDEPENDENTLY_APPROVED_MIGRATION_DIGEST"
 bash deploy/staging/deploy.sh "$EXPECTED_BRANCH" "$ACTUAL_COMMIT"
 
 # Verify Staging Service Active
@@ -385,6 +404,9 @@ echo "Staging URL:          $STAGING_BASE"
 echo "Staging Service:      $(systemctl is-active "$STAGING_SERVICE" 2>/dev/null || echo 'unknown')"
 echo "Database Isolation:   pdh_healthcheck_staging (Strict Allowlist)"
 echo "Backup SHA-256:       $BACKUP_SHA256"
+echo "Migration Tree SHA:   $MIGRATION_TREE_SHA"
+echo "Approved Digest:      $INDEPENDENTLY_APPROVED_MIGRATION_DIGEST"
+echo "Calculated Digest:    $CALCULATED_DIGEST (Verified Match)"
 echo "Seed Correlation ID:  ${DB_AUDIT_ID:-$SEED_CORRELATION_ID}"
 echo "----------------------------------------------------------------------"
 echo "Database Record Counts (Actual Live Staging Data):"
