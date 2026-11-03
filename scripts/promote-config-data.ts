@@ -460,24 +460,38 @@ async function main() {
       }
 
       // 7. Slots
+      // Preserve existing reservations in Production and never reset reservedCapacity below existing bookings
       for (const slot of approvedSlots) {
-        await tx.slot.upsert({
+        const existing = await tx.slot.findUnique({
           where: { startsAt: slot.startsAt },
-          create: {
-            dayId: slot.dayId,
-            startsAt: slot.startsAt,
-            endsAt: slot.endsAt,
-            capacity: slot.capacity,
-            reservedCapacity: slot.reservedCapacity,
-            closed: slot.closed,
-            revision: 0,
-          },
-          update: {
-            capacity: slot.capacity,
-            reservedCapacity: slot.reservedCapacity,
-            closed: slot.closed,
-          },
+          include: { _count: { select: { bookings: true, holds: true } } },
         });
+
+        if (existing) {
+          const existingBookings = existing._count?.bookings ?? 0;
+          const safeCapacity = Math.max(slot.capacity, existingBookings);
+          const safeReserved = Math.max(existing.reservedCapacity, existingBookings);
+          await tx.slot.update({
+            where: { id: existing.id },
+            data: {
+              capacity: safeCapacity,
+              reservedCapacity: safeReserved,
+              closed: slot.closed,
+            },
+          });
+        } else {
+          await tx.slot.create({
+            data: {
+              dayId: slot.dayId,
+              startsAt: slot.startsAt,
+              endsAt: slot.endsAt,
+              capacity: slot.capacity,
+              reservedCapacity: 0,
+              closed: slot.closed,
+              revision: 0,
+            },
+          });
+        }
       }
 
       // 8. Booking Policy
