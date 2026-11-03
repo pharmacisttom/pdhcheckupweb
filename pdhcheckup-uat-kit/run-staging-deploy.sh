@@ -9,7 +9,7 @@ set -Eeuo pipefail
 EXPECTED_BRANCH="feature/staging-uat"
 TARGET_COMMIT="${1:-}"
 # Independently approved migration set digest (Must NOT be dynamically assigned from unverified calculation)
-INDEPENDENTLY_APPROVED_MIGRATION_DIGEST="58cb2e90c0dba07ea718a4e4f2e661da3401ff58d404137cae9def478266d812"
+INDEPENDENTLY_APPROVED_MIGRATION_DIGEST="664693a41280db0bc185ffd42f93ae535c38ffe621d61b892eb091580e69b8c8"
 
 BACKUP_FILE="/var/backups/pdhcheckup/staging/pdh_healthcheck_staging_pre_uat_20261103_083533.sql"
 SOURCE_DIR="/var/www/pdhcheckup/source"

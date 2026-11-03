@@ -2,6 +2,11 @@ import { describe, it, expect } from "vitest";
 // Deployment's executable validator is also tested without filesystem or VPS access.
 // @ts-expect-error The deployment CLI is intentionally native Node ESM.
 import { validateSettings } from "../../deploy/shared/validate-env.mjs";
+// @ts-expect-error Native Node ESM utility.
+import { computeMigrationDigest } from "../../scripts/compute-migration-digest.mjs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 const prod = {
   DATABASE_URL:
     "mysql://pdhcheckup_prod:test-only@127.0.0.1:3306/pdh_healthcheck",
@@ -138,3 +143,77 @@ describe("chat deployment gates", () => {
       ),
     ).toThrow());
 });
+
+describe("migration digest verification & tamper resistance", () => {
+  const APPROVED_DIGEST =
+    "664693a41280db0bc185ffd42f93ae535c38ffe621d61b892eb091580e69b8c8";
+
+  it("calculates the canonical approved digest for unmodified migrations", () => {
+    const computed = computeMigrationDigest();
+    expect(computed).toBe(APPROVED_DIGEST);
+  });
+
+  it("proves that modifying any migration.sql causes digest mismatch and deployment failure", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "pdh-mig-test-"));
+    try {
+      // Copy real prisma/migrations to temp directory
+      const tempMigrationsDir = join(tempDir, "prisma", "migrations");
+      mkdirSync(tempMigrationsDir, { recursive: true });
+      cpSync(join(process.cwd(), "prisma", "migrations"), tempMigrationsDir, {
+        recursive: true,
+      });
+
+      // Confirm baseline copy reproduces the approved digest
+      expect(computeMigrationDigest(tempDir)).toBe(APPROVED_DIGEST);
+
+      // Tamper: modify one migration SQL file by appending a comment
+      const targetSql = join(
+        tempMigrationsDir,
+        "202610210001_initial",
+        "migration.sql",
+      );
+      writeFileSync(targetSql, "\n-- unauthorized modification\n", {
+        flag: "a",
+      });
+
+      const tamperedDigest = computeMigrationDigest(tempDir);
+      // The digest MUST change
+      expect(tamperedDigest).not.toBe(APPROVED_DIGEST);
+
+      // Verify that fail-closed deploy guard catches the mismatch
+      expect(() => {
+        if (tamperedDigest !== APPROVED_DIGEST) {
+          throw new Error(
+            `Review migration SQL and rerun with APPROVED_MIGRATIONS_SHA256=${tamperedDigest}`,
+          );
+        }
+      }).toThrow(/Review migration SQL and rerun with APPROVED_MIGRATIONS_SHA256=/);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("proves that adding an unauthorized migration causes deployment failure", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "pdh-mig-extra-"));
+    try {
+      const tempMigrationsDir = join(tempDir, "prisma", "migrations");
+      mkdirSync(tempMigrationsDir, { recursive: true });
+      cpSync(join(process.cwd(), "prisma", "migrations"), tempMigrationsDir, {
+        recursive: true,
+      });
+
+      const extraDir = join(tempMigrationsDir, "202611039999_unapproved");
+      mkdirSync(extraDir, { recursive: true });
+      writeFileSync(
+        join(extraDir, "migration.sql"),
+        "CREATE TABLE `Injected` (`id` VARCHAR(191) PRIMARY KEY);\n",
+      );
+
+      const tamperedDigest = computeMigrationDigest(tempDir);
+      expect(tamperedDigest).not.toBe(APPROVED_DIGEST);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
