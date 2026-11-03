@@ -10,7 +10,10 @@ import { staffPassword } from "./enrollment";
 import type { Prisma } from "@prisma/client";
 const verification = z.object({
   password: z.string().min(1).max(128),
-  mfa: z.string().regex(/^\d{6}$/),
+  mfa: z
+    .string()
+    .transform((v) => v.trim().replace(/[\s-]+/g, ""))
+    .pipe(z.string().regex(/^\d{6}$/)),
 });
 export const createStaffInput = z
   .object({

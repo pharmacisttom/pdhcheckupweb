@@ -223,7 +223,10 @@ export async function api(req: Request, path: string[]) {
         z
           .object({
             password: z.string().min(1).max(128),
-            mfa: z.string().regex(/^\d{6}$/),
+            mfa: z
+              .string()
+              .transform((val) => val.trim().replace(/[\s-]+/g, ""))
+              .pipe(z.string().regex(/^\d{6}$/)),
           })
           .strict(),
       );
@@ -262,7 +265,12 @@ export async function api(req: Request, path: string[]) {
     } else if (method === "POST" && resource === "auth/mfa/confirm") {
       const input = await body(
         req,
-        z.object({ code: z.string().regex(/^\d{6}$/) }),
+        z.object({
+          code: z
+            .string()
+            .transform((val) => val.trim().replace(/[\s-]+/g, ""))
+            .pipe(z.string().regex(/^\d{6}$/)),
+        }),
       );
       data = await confirmMfa(input.code);
     } else if (method === "GET" && resource === "admin/users/audit") {
@@ -369,10 +377,11 @@ export async function api(req: Request, path: string[]) {
           "กรุณาเปิดใช้งานบัญชีจากคำเชิญของผู้ดูแล",
           "ACTIVATION_REQUIRED",
         );
+      const cleanMfa = input.mfa ? input.mfa.trim().replace(/[\s-]+/g, "") : "";
       if (
         user.mfaSecret &&
-        !validOperatorTotp(decrypt<string>(user.mfaSecret), input.mfa ?? "") &&
-        !recoveryHash(input.mfa ?? "")
+        !validOperatorTotp(decrypt<string>(user.mfaSecret), cleanMfa) &&
+        !recoveryHash(cleanMfa)
       )
         throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
       const old = await identitySession(false);
@@ -399,9 +408,9 @@ export async function api(req: Request, path: string[]) {
           );
         if (
           user.mfaSecret &&
-          !validOperatorTotp(decrypt<string>(user.mfaSecret), input.mfa ?? "")
+          !validOperatorTotp(decrypt<string>(user.mfaSecret), cleanMfa)
         ) {
-          if (!(await consumeRecoveryCode(tx, user.id, input.mfa ?? "")))
+          if (!(await consumeRecoveryCode(tx, user.id, cleanMfa)))
             throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
           await audit(tx, user.id, "auth.mfa_recovery_used", user.id);
         }

@@ -174,8 +174,8 @@ export function StaffUsers({ role }: { role: string }) {
         <input
           name="adminMfa"
           inputMode="numeric"
-          pattern="[0-9]{6}"
-          maxLength={6}
+          pattern="[0-9\s-]{6,10}"
+          maxLength={10}
           autoComplete="one-time-code"
           required
           disabled={busy}

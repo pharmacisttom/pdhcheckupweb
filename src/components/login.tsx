@@ -70,7 +70,7 @@ export function Login() {
               disabled={!ready || busy}
               inputMode={recovery ? "text" : "numeric"}
               autoComplete="one-time-code"
-              maxLength={recovery ? 80 : 6}
+              maxLength={recovery ? 80 : 12}
             />
           </label>
           <button className="button" disabled={busy || !ready}>

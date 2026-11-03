@@ -28,7 +28,9 @@
     "chat:seed": "tsx --env-file=.env scripts/seed-health-chat.ts",
     "test:admin-crud:e2e": "playwright test --config playwright.admin-crud.config.ts",
     "seed:uat:dry": "tsx scripts/seed-uat-staging.ts --dry-run",
-    "seed:uat:apply": "tsx scripts/seed-uat-staging.ts --apply"
+    "seed:uat:apply": "tsx scripts/seed-uat-staging.ts --apply",
+    "promote:dry": "tsx scripts/promote-config-data.ts --dry-run",
+    "promote:apply": "tsx scripts/promote-config-data.ts --apply"
   },
   "keywords": [],
   "author": "",
