@@ -29,8 +29,11 @@
     "test:admin-crud:e2e": "playwright test --config playwright.admin-crud.config.ts",
     "seed:uat:dry": "tsx scripts/seed-uat-staging.ts --dry-run",
     "seed:uat:apply": "tsx scripts/seed-uat-staging.ts --apply",
+    "promote": "tsx scripts/promote-config-data.ts",
     "promote:dry": "tsx scripts/promote-config-data.ts --dry-run",
-    "promote:apply": "tsx scripts/promote-config-data.ts --apply"
+    "promote:apply": "tsx scripts/promote-config-data.ts --apply",
+    "deploy:prod:prepare": "bash scripts/run-production-deploy.sh prepare",
+    "deploy:prod:apply": "bash scripts/run-production-deploy.sh apply"
   },
   "keywords": [],
   "author": "",
