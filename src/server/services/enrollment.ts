@@ -1,3 +1,5 @@
+import { replaceRecoveryCodes } from "./mfa-recovery";
+import { staffNotice } from "./staff-email";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { Secret } from "otpauth";
@@ -20,6 +22,17 @@ export const staffPassword = z
   .string()
   .min(14)
   .max(128)
+  .refine(
+    (v) =>
+      ![
+        "passwordpassword",
+        "12345678901234",
+        "qwertyqwertyqwerty",
+        "administrator123",
+        "letmeinletmein",
+      ].includes(v.toLowerCase()),
+    "กรุณาใช้ passphrase ที่คาดเดายาก",
+  )
   .refine(
     (v) => Buffer.byteLength(v, "utf8") <= 72,
     "รหัสผ่านยาวได้ไม่เกิน 72 ไบต์",
@@ -88,7 +101,7 @@ export async function finishFirstPassword(
   const s = await onboardingIdentity();
   await rateLimit("onboard-password:" + s.user.id, 5, 900);
   const passwordHash = await bcrypt.hash(input.newPassword, 12);
-  return db.$transaction(
+  const result = await db.$transaction(
     async (tx) => {
       const { user, current } = await lockedOnboarding(tx, s.id, s.user.id);
       if (current.stage !== "password" || !user.mustChangePassword)
@@ -99,6 +112,10 @@ export async function finishFirstPassword(
         where: { id: user.id },
         data: { passwordHash, mustChangePassword: false },
       });
+      await tx.staffPasswordReset.updateMany({
+        where: { userId: user.id, consumedAt: null },
+        data: { consumedAt: new Date() },
+      });
       await tx.session.deleteMany({ where: { userId: user.id } });
       await createSession(user.id, tx, user.mfaSecret ? "full" : "mfa");
       await audit(tx, user.id, "auth.first_password_changed", user.id);
@@ -108,6 +125,8 @@ export async function finishFirstPassword(
     },
     { timeout: 15000 },
   );
+  await staffNotice(s.user, "password_changed", s.user.id + ":" + Date.now());
+  return result;
 }
 export async function beginMfa() {
   const s = await onboardingIdentity();
@@ -158,10 +177,15 @@ export async function confirmMfa(code: string) {
       where: { id: user.id },
       data: { mfaSecret: encrypt(secret) },
     });
+    await tx.staffPasswordReset.updateMany({
+      where: { userId: user.id, consumedAt: null },
+      data: { consumedAt: new Date() },
+    });
     await tx.session.deleteMany({ where: { userId: user.id } });
     await createSession(user.id, tx);
     await audit(tx, user.id, "auth.mfa_enrolled", user.id);
-    return { next: staffLanding(user.role) };
+    const recoveryCodes = await replaceRecoveryCodes(tx, user.id);
+    return { next: staffLanding(user.role), recoveryCodes };
   });
 }
 export const activationInput = z
@@ -183,7 +207,7 @@ export async function activateAccount(raw: z.input<typeof activationInput>) {
   });
   if (!invite) throw new AppError(422, "คำเชิญไม่ถูกต้องหรือหมดอายุ");
   const passwordHash = await bcrypt.hash(input.newPassword, 12);
-  return db.$transaction(
+  const result = await db.$transaction(
     async (tx) => {
       await tx.$queryRaw`SELECT id FROM User WHERE id = ${invite.userId} FOR UPDATE`;
       const user = await tx.user.findUniqueOrThrow({
@@ -195,13 +219,15 @@ export async function activateAccount(raw: z.input<typeof activationInput>) {
       if (
         !user.active ||
         !user.activationRequired ||
+        fresh.status !== "pending" ||
         fresh.consumedAt ||
+        fresh.revokedAt ||
         fresh.expiresAt <= new Date()
       )
         throw new AppError(422, "คำเชิญไม่ถูกต้องหรือหมดอายุ");
       await tx.userInvitation.updateMany({
         where: { userId: user.id, consumedAt: null },
-        data: { consumedAt: new Date() },
+        data: { consumedAt: new Date(), status: "accepted" },
       });
       await tx.user.update({
         where: { id: user.id },
@@ -211,11 +237,23 @@ export async function activateAccount(raw: z.input<typeof activationInput>) {
           mustChangePassword: false,
         },
       });
+      await tx.staffPasswordReset.updateMany({
+        where: { userId: user.id, consumedAt: null },
+        data: { consumedAt: new Date() },
+      });
       await tx.session.deleteMany({ where: { userId: user.id } });
       await createSession(user.id, tx, "mfa");
+      await audit(tx, user.id, "invitation.accepted", user.id, {
+        invitationId: invite.id,
+      });
       await audit(tx, user.id, "auth.account_activated", user.id);
       return { next: "/auth/mfa/setup" };
     },
     { timeout: 15000 },
   );
+  const activated = await db.user.findUniqueOrThrow({
+    where: { id: invite.userId },
+  });
+  await staffNotice(activated, "activated", invite.id + ":activated");
+  return result;
 }

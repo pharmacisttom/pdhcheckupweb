@@ -1,0 +1,6 @@
+# Knowledge workflow
+Open /admin/chat/knowledge. Author creates draft with stable topicKey, department, public/internal visibility in API, category, clinical flag, question, approved keywords, start/end dates. TXT/PDF/DOCX imports extract text into draft only, never publish automatically. PDF max40 pages; upload1MB; DOCX <=200 entries/5MB expanded; extracted12000 characters; worker96MB and5 seconds. Invalid/unsupported documents fail visibly. No external translation or original file hosting.
+
+Author submits own draft. Different reviewer must approve; clinical requires chat:clinical.review. Authorized publisher publishes reviewed safe content; previous current version archives, scheduled version clips prior expiry. Archive withdraws immediately; final answer transaction rechecks. User conversation never auto-promotes to knowledge. API supports new version using knowledgeId; the form creates new topics or a new draft version from an existing version without overwriting approved text. Citation count and author/reviewer identifiers are visible.
+
+Keyword matching is deliberately conservative. Reviewer must validate Thai health wording and imported content, remove personal data and any document instructions. Draft visibility is not approval.

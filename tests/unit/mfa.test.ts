@@ -12,6 +12,11 @@ describe('operator TOTP enrollment and login', () => {
     expect(validOperatorTotp(secret, '12345', now)).toBe(false);
     expect(validOperatorTotp(secret, '', now)).toBe(false);
   });
+  it('accepts codes with whitespace or hyphens from authenticator apps', () => {
+    expect(validOperatorTotp(secret, ' 287 082 ', 59000)).toBe(true);
+    expect(validOperatorTotp(secret, '287-082', 59000)).toBe(true);
+    expect(validOperatorTotp(' gez dgn bvg y3t qoj qge zdg nbv gy3 tqo jq ', '287082', 59000)).toBe(true);
+  });
   it('uses the hospital issuer and operator account in enrollment', () => {
     const uri = new URL(operatorTotp(secret, 'operator@example.invalid').toString());
     expect(uri.searchParams.get('issuer')).toBe('PDH Smart Health Check');

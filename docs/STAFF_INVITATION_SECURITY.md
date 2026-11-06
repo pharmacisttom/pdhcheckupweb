@@ -1,0 +1,11 @@
+# Staff invitation security review
+
+Controls implemented: existing server-side RBAC and staged session gating; manager cannot assign/edit superadmin; another-admin-only MFA reset; no self-lockout; bcrypt12/passphrase14+/72-byte bound/local common examples; secure256-bit invitation/reset tokens hash-only;128-bit recovery codes hash-only; User-row transaction locks for lifecycle; one-use expiry/revocation; origin checks; persistent rate limits; session revocation on account/password changes; no token in URL path/query/log; no-referrer/no-store/noindex on token pages with override order checked in browser; plaintext mail avoids HTML/header injection; sender/to validation; SMTP verifiedTLS/loggingoff and fixedHTTPS Resend adapter; no sensitive provider errors logged.
+
+Email/password recovery and MFA recovery remain separate. A reset token cannot disable existing MFA or activate an unrelated existing account. Invitation duplicate email returns409 only behind users:manage. Forgot-password is generic for eligible/unknown accounts and delivery failures, with post-response send to avoid provider-latency disclosure; not certified constant-time under arbitrary DB/network conditions.
+
+Audit reuses Audit(actorId,action,resourceId,correlationId,createdAt,metadata). Event names cover invitation.created/resent/revoked/accepted, invitation.email_sent/failed/disabled, auth.account_activated/password_reset_requested/completed/mfa_enrolled/mfa_recovery_requested/used/codes_rotated and users.role_changed/disabled. No secrets included. IP/UA collection is not added absent an approved hospital retention/privacy policy.
+
+Existing consumedAt historically meant activation OR invalidation. Second forward migration marks these records legacy_consumed instead of inventing accepted/revoked history. New events have explicit status/revokedAt and auditable meaning.
+
+Review scope is code + automated tests, NOT a complete OWASP ASVS certification or independent penetration test. Real email receipt/domain alignment, VPS configuration, human identity proof, actual device/screen-reader UAT, mail failure operations and restore rehearsal remain external acceptance gates. Provider-status sent means accepted only. Full breached-password dataset/API not connected; no raw password is sent externally.

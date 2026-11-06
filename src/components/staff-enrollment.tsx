@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { request } from "@/lib/client";
+import { RecoveryCodesView } from "./staff-recovery";
 import { ErrorState } from "./ui";
 function Logout() {
   const [ready, setReady] = useState(false);
@@ -26,6 +27,11 @@ export function EnrollmentForm({ mode }: { mode: "activate" | "password" }) {
   useEffect(() => {
     setReady(true);
   }, []);
+  const [invited, setInvited] = useState<{
+    name: string;
+    email: string;
+    department?: string | null;
+  } | null>(null);
   const [activationToken, setActivationToken] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -35,6 +41,15 @@ export function EnrollmentForm({ mode }: { mode: "activate" | "password" }) {
     if (fragment) {
       window.history.replaceState(null, "", window.location.pathname);
       queueMicrotask(() => setActivationToken(fragment));
+      request<{ name: string; email: string; department?: string | null }>(
+        "invitations/verify",
+        { token: fragment },
+      )
+        .then(setInvited)
+        .catch((e) => {
+          setActivationToken("");
+          setError((e as Error).message);
+        });
     }
   }, [mode]);
   return (
@@ -50,6 +65,11 @@ export function EnrollmentForm({ mode }: { mode: "activate" | "password" }) {
           เพื่อเข้าระบบ
         </p>
         {error && <ErrorState message={error} />}
+        {invited && (
+          <p>
+            คำเชิญสำหรับ {invited.name} ({invited.email}) {invited.department}
+          </p>
+        )}
         {mode === "activate" && !activationToken && (
           <p role="status">
             เปิดหน้านี้จากลิงก์คำเชิญที่ผู้ดูแลมอบให้
@@ -123,7 +143,9 @@ export function EnrollmentForm({ mode }: { mode: "activate" | "password" }) {
           <button
             className="button"
             disabled={
-              busy || !ready || (mode === "activate" && !activationToken)
+              busy ||
+              !ready ||
+              (mode === "activate" && (!activationToken || !invited))
             }
           >
             {busy ? "กำลังบันทึก…" : "บันทึกรหัสผ่านและดำเนินการต่อ"}
@@ -137,6 +159,15 @@ export function EnrollmentForm({ mode }: { mode: "activate" | "password" }) {
   );
 }
 export function MfaSetup() {
+  const [recovery, setRecovery] = useState<{
+    codes: string[];
+    next: string;
+  } | null>(null);
+  useEffect(() => {
+    const hide = () => setRecovery(null);
+    window.addEventListener("pagehide", hide);
+    return () => window.removeEventListener("pagehide", hide);
+  }, []);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     setReady(true);
@@ -164,6 +195,18 @@ export function MfaSetup() {
       window.removeEventListener("pagehide", hide);
     };
   }, [setup]);
+  if (recovery)
+    return (
+      <div className="login-container">
+        <RecoveryCodesView
+          codes={recovery.codes}
+          onDone={() => {
+            setRecovery(null);
+            window.location.replace(recovery.next);
+          }}
+        />
+      </div>
+    );
   return (
     <div className="login-container">
       <section className="card">
@@ -219,13 +262,16 @@ export function MfaSetup() {
                 const form = e.currentTarget;
                 const code = String(new FormData(form).get("code"));
                 try {
-                  const result = await request<{ next: string }>(
-                    "auth/mfa/confirm",
-                    { code },
-                  );
+                  const result = await request<{
+                    next: string;
+                    recoveryCodes: string[];
+                  }>("auth/mfa/confirm", { code });
                   setSetup(null);
                   form.reset();
-                  window.location.replace(result.next);
+                  setRecovery({
+                    codes: result.recoveryCodes,
+                    next: result.next,
+                  });
                 } catch (e) {
                   setError((e as Error).message);
                 } finally {

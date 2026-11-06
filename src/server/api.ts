@@ -1,3 +1,17 @@
+import { adminCrud } from "./services/admin-crud";
+import { chatRoute } from "./services/chat/router";
+import {
+  consumeRecoveryCode,
+  replaceRecoveryCodes,
+  recoveryHash,
+} from "./services/mfa-recovery";
+import {
+  forgotStaffInput,
+  resetStaffInput,
+  forgotStaffPassword,
+  resetStaffPassword,
+} from "./services/staff-password-reset";
+import { listInvitations, verifyInvitation } from "./services/staff-users";
 import { intakeReusePlan, intakeReuseValue } from "@/lib/intake-reuse";
 import {
   otpRequired,
@@ -33,7 +47,7 @@ import {
   staffAction,
   staffActionInput,
 } from "./services/staff-users";
-import { staffLanding } from "@/lib/staff-roles";
+import { staffRoles, staffLanding } from "@/lib/staff-roles";
 import { availableSlots } from "./services/availability";
 import { boundedRequest } from "@/lib/request-limits";
 import { changePassword, changePasswordSchema } from "./services/passwords";
@@ -42,7 +56,7 @@ import {
   setBookingPolicy,
   submitContactRequest,
 } from "./services/booking-policy";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 import bcrypt from "bcryptjs";
 import { validOperatorTotp } from "@/lib/mfa";
@@ -111,7 +125,11 @@ export async function api(req: Request, path: string[]) {
       await sameOrigin(req);
       req = await boundedRequest(
         req,
-        resource === "admin/imports" ? 2200000 : 100000,
+        resource === "admin/imports"
+          ? 2200000
+          : resource === "admin/chat/knowledge/import"
+            ? 1200000
+            : 100000,
       );
     }
     const identity = await identitySession(false);
@@ -143,6 +161,17 @@ export async function api(req: Request, path: string[]) {
         "ปิดการส่ง OTP กรุณาติดต่อเจ้าหน้าที่เพื่อยืนยันตัวตน",
         "OTP_DISABLED",
       );
+    if (resource.startsWith("chat/") || resource.startsWith("admin/chat/")) {
+      return NextResponse.json(
+        { data: await chatRoute(req, resource), correlationId },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+            "Referrer-Policy": "no-referrer",
+          },
+        },
+      );
+    }
     let data: unknown;
     if (method === "GET" && resource === "health") {
       if (!process.env.DATABASE_URL)
@@ -168,6 +197,64 @@ export async function api(req: Request, path: string[]) {
       if (identity?.userId)
         throw new AppError(409, "กรุณาออกจากระบบก่อนเปิดใช้งานบัญชี");
       data = await activateAccount(await body(req, activationInput));
+    } else if (method === "POST" && resource === "invitations/verify") {
+      const input = await body(
+        req,
+        z.object({ token: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+      );
+      data = await verifyInvitation(input.token);
+    } else if (method === "POST" && resource === "auth/forgot-password") {
+      data = await forgotStaffPassword(
+        await body(req, forgotStaffInput),
+        after,
+      );
+    } else if (method === "POST" && resource === "auth/reset-password") {
+      data = await resetStaffPassword(await body(req, resetStaffInput));
+    } else if (method === "GET" && resource === "admin/users/invitations") {
+      data = await listInvitations(url.searchParams.get("userId") ?? undefined);
+    } else if (method === "POST" && resource === "admin/users/invitations") {
+      data = await createStaff(await body(req, createStaffInput));
+    } else if (method === "POST" && resource === "auth/mfa/recovery-codes") {
+      const s = (await session())!;
+      if (!s?.user?.mfaSecret)
+        throw new AppError(403, "กรุณายืนยันตัวตนด้วย MFA ก่อน");
+      const input = await body(
+        req,
+        z
+          .object({
+            password: z.string().min(1).max(128),
+            mfa: z
+              .string()
+              .transform((val) => val.trim().replace(/[\s-]+/g, ""))
+              .pipe(z.string().regex(/^\d{6}$/)),
+          })
+          .strict(),
+      );
+      await rateLimit("recovery-rotate:" + s.user.id, 5, 900);
+      if (
+        !(await bcrypt.compare(input.password, s.user.passwordHash)) ||
+        !validOperatorTotp(decrypt<string>(s.user.mfaSecret), input.mfa)
+      )
+        throw new AppError(403, "รหัสผ่านหรือ MFA ไม่ถูกต้อง");
+      data = await db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM User WHERE id=${s.user!.id} FOR UPDATE`;
+        const fresh = await tx.user.findUniqueOrThrow({
+          where: { id: s.user!.id },
+        });
+        const live = await tx.session.findUnique({ where: { id: s.id } });
+        if (
+          !fresh.active ||
+          fresh.passwordHash !== s.user!.passwordHash ||
+          fresh.mfaSecret !== s.user!.mfaSecret ||
+          !live ||
+          live.expiresAt <= new Date() ||
+          live.stage !== "full"
+        )
+          throw new AppError(401, "กรุณาเข้าสู่ระบบใหม่");
+        const recoveryCodes = await replaceRecoveryCodes(tx, fresh.id);
+        await audit(tx, fresh.id, "auth.mfa_recovery_codes_rotated", fresh.id);
+        return { recoveryCodes };
+      });
     } else if (method === "GET" && resource === "auth/onboarding") {
       const s = await onboardingIdentity();
       data = { next: onboardingNext(s.user), expiresAt: s.expiresAt };
@@ -178,9 +265,36 @@ export async function api(req: Request, path: string[]) {
     } else if (method === "POST" && resource === "auth/mfa/confirm") {
       const input = await body(
         req,
-        z.object({ code: z.string().regex(/^\d{6}$/) }),
+        z.object({
+          code: z
+            .string()
+            .transform((val) => val.trim().replace(/[\s-]+/g, ""))
+            .pipe(z.string().regex(/^\d{6}$/)),
+        }),
       );
       data = await confirmMfa(input.code);
+    } else if (method === "GET" && resource === "admin/users/audit") {
+      const actor = await guard("users:manage");
+      await rateLimit("staff-audit:" + actor!.user!.id, 120, 60);
+      const id = z
+        .string()
+        .min(1)
+        .max(191)
+        .parse(url.searchParams.get("userId"));
+      data = await db.audit.findMany({
+        where: {
+          resourceId: id,
+          OR: [
+            { action: { startsWith: "users." } },
+            { action: { startsWith: "auth." } },
+            { action: { startsWith: "invitation." } },
+            { action: { startsWith: "email." } },
+          ],
+        },
+        select: { id: true, action: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
     } else if (method === "GET" && resource === "admin/users") {
       const page = z.coerce
         .number()
@@ -188,7 +302,23 @@ export async function api(req: Request, path: string[]) {
         .min(1)
         .max(10000)
         .parse(url.searchParams.get("page") ?? 1);
-      data = await listStaff(url.searchParams.get("q") ?? "", page);
+      data = await listStaff(
+        url.searchParams.get("q") ?? "",
+        page,
+        z
+          .object({
+            department: z.string().max(160).optional(),
+            role: z.enum(staffRoles).optional(),
+            status: z.enum(["active", "pending", "suspended"]).optional(),
+          })
+          .parse(
+            Object.fromEntries(
+              ["department", "role", "status"].flatMap((k) =>
+                url.searchParams.get(k) ? [[k, url.searchParams.get(k)]] : [],
+              ),
+            ),
+          ),
+      );
     } else if (method === "POST" && resource === "admin/users") {
       data = await createStaff(await body(req, createStaffInput));
     } else if (method === "POST" && resource === "admin/users/update") {
@@ -222,7 +352,7 @@ export async function api(req: Request, path: string[]) {
         z.object({
           email: z.email().max(191),
           password: z.string().min(1).max(128),
-          mfa: z.string().max(10).optional(),
+          mfa: z.string().max(80).optional(),
         }),
       );
       await rateLimit("login:global", 500, 900);
@@ -247,9 +377,11 @@ export async function api(req: Request, path: string[]) {
           "กรุณาเปิดใช้งานบัญชีจากคำเชิญของผู้ดูแล",
           "ACTIVATION_REQUIRED",
         );
+      const cleanMfa = input.mfa ? input.mfa.trim().replace(/[\s-]+/g, "") : "";
       if (
         user.mfaSecret &&
-        !validOperatorTotp(decrypt<string>(user.mfaSecret), input.mfa ?? "")
+        !validOperatorTotp(decrypt<string>(user.mfaSecret), cleanMfa) &&
+        !recoveryHash(cleanMfa)
       )
         throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
       const old = await identitySession(false);
@@ -274,6 +406,14 @@ export async function api(req: Request, path: string[]) {
             401,
             "ข้อมูลบัญชีเปลี่ยนแปลง กรุณาเข้าสู่ระบบใหม่",
           );
+        if (
+          user.mfaSecret &&
+          !validOperatorTotp(decrypt<string>(user.mfaSecret), cleanMfa)
+        ) {
+          if (!(await consumeRecoveryCode(tx, user.id, cleanMfa)))
+            throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
+          await audit(tx, user.id, "auth.mfa_recovery_used", user.id);
+        }
         if (old) await tx.session.deleteMany({ where: { id: old.id } });
         await createSession(user.id, tx, stage);
         await audit(
@@ -797,6 +937,22 @@ export async function api(req: Request, path: string[]) {
           : error instanceof ZodError
             ? 422
             : 503;
+    if (status >= 500) {
+      const code = (error as { code?: string })?.code;
+      console.error(
+        JSON.stringify({
+          event: "api.failure",
+          correlationId,
+          scope: resource.startsWith("admin/") ? "admin" : "public",
+          method: ["GET", "POST"].includes(method) ? method : "OTHER",
+          code:
+            typeof code === "string" &&
+            /^(P[0-9]{4}|NOT_CONFIGURED)$/.test(code)
+              ? code
+              : "UNEXPECTED",
+        }),
+      );
+    }
     const message =
       (error as { code?: string })?.code === "P2002"
         ? "ข้อมูลนี้มีอยู่ในระบบแล้ว"
@@ -846,12 +1002,17 @@ export async function api(req: Request, path: string[]) {
         },
         correlationId,
       },
-      { status, headers: { "Cache-Control": "no-store" } },
+      {
+        status,
+        headers: { "Cache-Control": "no-store", "X-Request-ID": correlationId },
+      },
     );
   }
 }
 
 async function adminApi(req: Request, path: string[]): Promise<unknown> {
+  const managed = await adminCrud(req, path.join("/"));
+  if (managed !== undefined) return managed;
   if (path.join("/") === "booking-policy") {
     const s = await guard("calendar:write");
     if (req.method === "GET") return bookingPolicy();
@@ -1128,7 +1289,7 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
     return transitionBooking(b.id, "checked_in", s.user!.id);
   }
   if (resource === "packages" && method === "GET") {
-    await guard("packages:write");
+    await guard("packages:read");
     return db.package.findMany({
       include: {
         items: {
@@ -1167,6 +1328,14 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
         ),
     );
     return db.$transaction(async (tx) => {
+      if (input.sourceId) {
+        const source = await tx.package.findUnique({
+          where: { id: input.sourceId },
+        });
+        if (!source) throw new AppError(404, "ไม่พบแพ็กเกจต้นฉบับ");
+        if (source.key !== input.key)
+          throw new AppError(422, "รุ่นใหม่ต้องใช้รหัสตระกูลเดียวกับต้นฉบับ");
+      }
       const available = await tx.service.count({
         where: { id: { in: input.serviceIds }, active: true },
       });
@@ -1199,7 +1368,9 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
           },
         },
       });
-      await audit(tx, s.user!.id, "package.drafted", p.id);
+      await audit(tx, s.user!.id, "package.drafted", p.id, {
+        sourceId: input.sourceId ?? null,
+      });
       return { id: p.id, status: p.status };
     });
   }
@@ -1234,17 +1405,24 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
         day: z.iso.date(),
         time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
         capacity: z.number().int().min(1).max(500),
-        dailyCapacity: z.number().int().min(1).max(2000),
+        dailyCapacity: z.number().int().min(1).max(2000).optional(),
       }),
     );
     return db.$transaction(async (tx) => {
-      const day = await tx.dayCapacity.upsert({
-        where: { id: input.day },
-        create: { id: input.day, capacity: input.dailyCapacity },
-        update: {},
-      });
-      if (day.capacity !== input.dailyCapacity)
+      let day = await tx.dayCapacity.findUnique({ where: { id: input.day } });
+      if (!day) {
+        day = await tx.dayCapacity.create({
+          data: {
+            id: input.day,
+            capacity: input.dailyCapacity ?? Math.max(input.capacity, 20),
+          },
+        });
+      } else if (
+        input.dailyCapacity !== undefined &&
+        day.capacity !== input.dailyCapacity
+      ) {
         throw new AppError(409, "ความจุรายวันเดิมไม่ตรง กรุณาตรวจสอบ");
+      }
       const startsAt = new Date(input.day + "T" + input.time + ":00+07:00");
       const slot = await tx.slot.create({
         data: {
@@ -1299,9 +1477,13 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) throw new AppError(422, "กรุณาเลือกไฟล์");
-    const mapping = z
-      .record(z.string(), z.string())
-      .parse(JSON.parse(String(form.get("mapping") ?? "{}")));
+    let mappingInput: unknown;
+    try {
+      mappingInput = JSON.parse(String(form.get("mapping") ?? "{}"));
+    } catch {
+      throw new AppError(422, "การจับคู่คอลัมน์ต้องเป็น JSON ที่ถูกต้อง");
+    }
+    const mapping = z.record(z.string(), z.string()).parse(mappingInput);
     return stageImport(file, s.user!.id, mapping);
   }
   if (resource === "imports/approve" && method === "POST") {

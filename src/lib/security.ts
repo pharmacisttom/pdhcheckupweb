@@ -1,3 +1,4 @@
+import { permitted } from "./permissions";
 import {
   createCipheriv,
   createDecipheriv,
@@ -57,7 +58,9 @@ export function equalHash(a: string, b: string) {
   );
 }
 export type Identity = Session & { user: User | null };
-export async function identitySession(required = true): Promise<Identity | null> {
+export async function identitySession(
+  required = true,
+): Promise<Identity | null> {
   const value = (await cookies()).get("pdh_session")?.value;
   const s = value
     ? await db.session.findUnique({
@@ -74,20 +77,34 @@ export async function identitySession(required = true): Promise<Identity | null>
 }
 export async function session(required = true): Promise<Identity | null> {
   const s = await identitySession(false);
-  if (!s || s.stage !== 'full' || (s.userId && (!s.user?.mfaSecret || s.user.activationRequired || s.user.mustChangePassword))) {
-    if (required) throw new AppError(401, 'กรุณายืนยันตัวตนให้ครบถ้วน', 'UNAUTHENTICATED');
+  if (
+    !s ||
+    s.stage !== "full" ||
+    (s.userId &&
+      (!s.user?.mfaSecret ||
+        s.user.activationRequired ||
+        s.user.mustChangePassword))
+  ) {
+    if (required)
+      throw new AppError(401, "กรุณายืนยันตัวตนให้ครบถ้วน", "UNAUTHENTICATED");
     return null;
   }
   return s;
 }
-export async function createSession(userId?: string, store: Prisma.TransactionClient = db, stage: 'full' | 'password' | 'mfa' = 'full') {
+export async function createSession(
+  userId?: string,
+  store: Prisma.TransactionClient = db,
+  stage: "full" | "password" | "mfa" = "full",
+) {
   const raw = token();
   const s = await store.session.create({
     data: {
       tokenHash: hash(raw),
       userId,
       stage,
-      expiresAt: new Date(Date.now() + (stage === 'full' ? (userId ? 8 : 2) * 3600000 : 600000)),
+      expiresAt: new Date(
+        Date.now() + (stage === "full" ? (userId ? 8 : 2) * 3600000 : 600000),
+      ),
     },
   });
   (await cookies()).set("pdh_session", raw, {
@@ -95,43 +112,11 @@ export async function createSession(userId?: string, store: Prisma.TransactionCl
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: stage === 'full' ? (userId ? 28800 : 7200) : 600,
+    maxAge: stage === "full" ? (userId ? 28800 : 7200) : 600,
   });
   return s;
 }
-const permissions: Record<string, string[]> = {
-  registration: [
-    "dashboard:read",
-    "bookings:read",
-    "bookings:write",
-    "checkin:write",
-  ],
-  manager: [
-    "users:manage",
-    "dashboard:read",
-    "bookings:read",
-    "bookings:write",
-    "packages:write",
-    "calendar:write",
-    "reports:read",
-    "organizations:write",
-  ],
-  laboratory: ["catalog:write", "imports:write"],
-  finance: [
-    "dashboard:read",
-    "imports:approve",
-    "finance:read",
-    "reports:read",
-  ],
-  clinician: ["questionnaire:write", "clinical:read", "packages:approve"],
-  dpo: ["privacy:read", "audit:read"],
-  auditor: ["audit:read", "reports:read"],
-  coordinator: ["organization:own"],
-  superadmin: ["*"],
-};
-export function permitted(role: string, permission: string) {
-  return permissions[role]?.some((p) => p === "*" || p === permission) ?? false;
-}
+export { permitted } from "./permissions";
 export async function guard(permission: string) {
   const s = await session();
   if (!s?.user || !permitted(s.user.role, permission))
@@ -147,15 +132,8 @@ export async function sameOrigin(request: Request) {
 export async function rateLimit(key: string, limit: number, seconds: number) {
   const now = new Date();
   const result = await db.$transaction(async (tx) => {
-    await tx.rateLimit.upsert({
-      where: { key },
-      create: {
-        key,
-        count: 0,
-        expiresAt: new Date(now.getTime() + seconds * 1000),
-      },
-      update: {},
-    });
+    // Empty Prisma upsert updates can use a read/insert path and race on first use.
+    await tx.$executeRaw`INSERT INTO RateLimit (\`key\`, \`count\`, expiresAt) VALUES (${key}, 0, ${new Date(now.getTime() + seconds * 1000)}) ON DUPLICATE KEY UPDATE \`key\`=\`key\``;
     await tx.$queryRaw`SELECT \`key\` FROM RateLimit WHERE \`key\` = ${key} FOR UPDATE`;
     const row = await tx.rateLimit.findUniqueOrThrow({ where: { key } });
     const count = row.expiresAt <= now ? 1 : row.count + 1;
@@ -179,6 +157,7 @@ export async function audit(
   action: string,
   resourceId: string,
   metadata: Prisma.InputJsonValue = {},
+  correlationId?: string,
 ) {
   await tx.audit.create({
     data: {
@@ -187,6 +166,7 @@ export async function audit(
       resourceId,
       metadata,
       correlationId:
+        correlationId ??
         (await headers()).get("x-request-id")?.slice(0, 100) ??
         crypto.randomUUID(),
     },
