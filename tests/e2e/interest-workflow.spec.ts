@@ -336,7 +336,7 @@ test("real interest without package -> staff review -> owner acceptance -> actua
     viewport: { width: 820, height: 1180 },
   });
   await staff.addCookies([
-    { name: "pdh_session", value: staffToken, url: "http://localhost:3037" },
+    { name: "pdh_session", value: staffToken, url: process.env.APP_URL! },
   ]);
   const staffPage = await staff.newPage();
   await staffPage.goto("/admin/contact-requests");
@@ -400,7 +400,7 @@ test("real interest without package -> staff review -> owner acceptance -> actua
   // Existing online API flow through the same authenticated browser and genuine DB capacity service.
   const api = page.request;
   const registered = await api.post("/api/v1/registrations", {
-    headers: { Origin: "http://localhost:3037" },
+    headers: { Origin: process.env.APP_URL! },
     data: {
       person: {
         firstName: "Second",

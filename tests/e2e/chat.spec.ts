@@ -104,7 +104,7 @@ test("public handoff to staff and internal note isolation", async ({
       {
         name: "pdh_session",
         value: token,
-        url: "http://localhost:3037",
+        url: process.env.APP_URL!,
         httpOnly: true,
         sameSite: "Lax",
       },

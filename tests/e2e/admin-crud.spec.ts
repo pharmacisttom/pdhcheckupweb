@@ -44,7 +44,7 @@ async function auth(context: BrowserContext, userId: string) {
     {
       name: "pdh_session",
       value: token,
-      url: "http://localhost:3037",
+      url: process.env.APP_URL!,
       httpOnly: true,
       sameSite: "Lax",
     },
@@ -278,6 +278,11 @@ test("organization create edit disable and mobile modal", async ({
       })
     ).status,
   ).toBe("inactive");
+  await page.reload();
+  dialog = await edit(page, marker);
+  await expect(dialog.getByLabel("สถานะองค์กร")).toHaveValue("inactive");
+  const savedOrg = await db.organization.findFirstOrThrow({ where: { name: { contains: marker } } });
+  expect(await db.audit.count({ where: { actorId: staff.id, resourceId: savedOrg.id, action: "organization.updated" } })).toBeGreaterThan(0);
 });
 test("service metadata editor and slot lifecycle", async ({
   page,
@@ -315,6 +320,11 @@ test("service metadata editor and slot lifecycle", async ({
     (await db.service.findUniqueOrThrow({ where: { code: "NEW-" + marker } }))
       .nameEn,
   ).toBe("Revised synthetic");
+  await page.reload();
+  await page.getByLabel("ค้นหาในฐานข้อมูล", { exact: true }).fill("NEW-" + marker);
+  await page.getByRole("button", { name: "ค้นหา", exact: true }).click();
+  d = await edit(page, "NEW-" + marker);
+  await expect(d.getByLabel("ชื่อบริการภาษาอังกฤษ", { exact: true })).toHaveValue("Revised synthetic");
   await page.goto("/admin/calendar");
   await page
     .getByRole("button", { name: "เพิ่มช่วงเวลา", exact: true })
@@ -322,7 +332,7 @@ test("service metadata editor and slot lifecycle", async ({
   d = page.getByRole("dialog");
   await d.getByLabel("วันให้บริการ", { exact: true }).fill(day);
   await d.getByLabel("เวลาเริ่มต้น (ไทย)", { exact: true }).fill("09:00");
-  await d.getByLabel("ความจุรายวัน", { exact: true }).fill("10");
+  await d.getByLabel("ความจุรวมรายวัน (เว้นว่างได้หากใช้วันเดิม)", { exact: true }).fill("10");
   await d.getByLabel("ความจุช่วงเวลา", { exact: true }).fill("5");
   await save(page);
   const slot = await db.slot.findFirstOrThrow({ where: { dayId: day } });
@@ -335,6 +345,12 @@ test("service metadata editor and slot lifecycle", async ({
   expect(
     (await db.slot.findUniqueOrThrow({ where: { id: slot.id } })).closed,
   ).toBe(true);
+  await page.reload();
+  await page.getByLabel("ค้นหาวัน (YYYY-MM-DD)", { exact: true }).fill(day);
+  await page.getByRole("button", { name: "ค้นหา", exact: true }).click();
+  d = await edit(page, slot.id);
+  await expect(d.getByLabel("ปิดช่วงเวลา", { exact: true })).toBeChecked();
+  expect(await db.audit.count({ where: { actorId: staff.id, resourceId: slot.id, action: "slot.configured" } })).toBeGreaterThan(0);
 });
 test("package clone prefill and clinician read approval permission", async ({
   page,
@@ -363,6 +379,8 @@ test("package clone prefill and clinician read approval permission", async ({
     ),
   ).toBeVisible();
   expect(await db.package.count({ where: { key: "B-" + marker } })).toBe(2);
+  await page.reload();
+  await expect(page.locator("tr").filter({ hasText: "B-" + marker })).toHaveCount(2);
   const ctx = await browser.newContext();
   try {
     await auth(ctx, clinician.id);
@@ -400,7 +418,7 @@ test("finance approval bill payment and ledger UI", async ({
       .getByLabel("ยอดเงิน (ยกเลิกเอกสารให้ระบุ 0)", { exact: true })
       .fill(amount);
     await d
-      .getByLabel("เลขหลักฐาน/เอกสารอ้างอิง", { exact: true })
+      .getByLabel("เลขหลักฐาน/เอกสารอ้างอิง (จำเป็นเมื่อรับชำระหรือคืนเงิน)", { exact: true })
       .fill("SYNTHETIC-ONLY");
     await d
       .getByLabel("เหตุผล / บันทึกดำเนินการ")
@@ -412,6 +430,9 @@ test("finance approval bill payment and ledger UI", async ({
       await db.invoice.findUniqueOrThrow({ where: { id: invoiceId } })
     ).paidAmount?.toFixed(2),
   ).toBe("30.00");
+  await page.reload();
+  await page.getByLabel("ค้นหาในฐานข้อมูล", { exact: true }).fill(invoiceId);
+  await page.getByRole("button", { name: "ค้นหา", exact: true }).click();
   const d = await edit(page, invoiceId);
   await expect(
     d.getByRole("heading", { name: "ประวัติการเงิน (ล่าสุด 100 รายการ)" }),

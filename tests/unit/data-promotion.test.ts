@@ -455,7 +455,7 @@ describe('PDH Smart Health Check — Data Promotion Safety & Referential Integri
       let transactionRolledBack = false;
 
       const mockTargetDb = {
-        $transaction: vi.fn(async (callback: (tx: any) => Promise<any>) => {
+        $transaction: vi.fn(async (callback: (tx: { questionnaire: { upsert: () => Promise<unknown> }; service: { upsert: () => Promise<unknown> } }) => Promise<unknown>) => {
           transactionStarted = true;
           const mockTx = {
             questionnaire: { upsert: vi.fn().mockResolvedValue({}) },

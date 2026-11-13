@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { sandboxEnabled } from "@/lib/sandbox";
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
@@ -22,6 +23,7 @@ export default function RootLayout({
   return (
     <html lang="th">
       <body>
+        {sandboxEnabled() && <div className="sandbox-banner" role="status"><strong>ระบบต้นแบบ / SANDBOX</strong><span>ใช้ข้อมูลสังเคราะห์เท่านั้น · แยกจาก Production</span><a href="/sandbox">คู่มือทดลอง →</a></div>}
         <a href="#main" className="skip-link">
           ข้ามไปยังเนื้อหา
         </a>

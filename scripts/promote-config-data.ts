@@ -18,6 +18,25 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { writeFileSync, readFileSync } from 'node:fs';
+import { manifestHash, verifyApprovedManifest } from './promotion-manifest';
+
+async function configurationFingerprint(client: Prisma.TransactionClient): Promise<string> {
+  const tables = [
+    await client.questionnaire.findMany(), await client.service.findMany(),
+    await client.price.findMany(), await client.package.findMany(),
+    await client.packageItem.findMany(), await client.dayCapacity.findMany(),
+    await client.slot.findMany(),
+  ];
+  return manifestHash(tables.map(rows => rows.sort((a, b) => a.id.localeCompare(b.id, 'en'))));
+}
+
+async function reservationFingerprint(client: Prisma.TransactionClient): Promise<string> {
+  return manifestHash([
+    await client.booking.findMany({ orderBy: { id: 'asc' } }),
+    await client.hold.findMany({ orderBy: { id: 'asc' } }),
+    await client.bookingPolicy.findMany({ orderBy: { id: 'asc' } }),
+  ]);
+}
 
 export const ALLOWED_CONFIG_TABLES = [
   'Questionnaire',
@@ -108,6 +127,10 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): PromotionOpti
     throw new Error('--apply requires --manifest-checksum=<SHA256> generated during --dry-run');
   }
 
+  if (includeUatServices) {
+    throw new Error('UAT/DEMO promotion is forbidden; remove --include-uat-services');
+  }
+
   return { dryRun, apply, promoteApprovedPrices, includeUatServices, manifestFile, manifestChecksum };
 }
 
@@ -145,6 +168,16 @@ export function validateDatabaseTargets(
   const sourceDbName = getDatabaseName(sourceUrl);
   const targetDbName = getDatabaseName(targetUrl);
 
+  for (const value of [sourceUrl, targetUrl]) {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'mysql:' || !parsed.hostname || !parsed.username || parsed.hash) {
+      throw new Error('Explicit MySQL database identity required');
+    }
+    if (!['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname)) {
+      throw new Error('Production promotion requires the allowlisted local MySQL host');
+    }
+  }
+
   if (sourceUrl === targetUrl || sourceDbName === targetDbName) {
     throw new Error('Source and Target database URLs resolve to the same database! Aborting to prevent corruption.');
   }
@@ -156,6 +189,8 @@ export function validateDatabaseTargets(
     if (targetDbName !== 'pdh_healthcheck') {
       throw new Error(`SAFETY VIOLATION: Target database must be exactly 'pdh_healthcheck' (got '${targetDbName}'). Aborting.`);
     }
+  } else if (![sourceDbName, targetDbName].every(name => /^(?:test_[a-z0-9_]+|[a-z0-9_]+_test)$/.test(name))) {
+    throw new Error('Test promotion requires two explicitly named isolated test databases');
   }
 
   return { sourceDbName, targetDbName };
@@ -191,7 +226,7 @@ export function filterServices<T extends {
   active: boolean;
   requiresReview: boolean;
   preparation?: string | null;
-  componentCodes: any;
+  componentCodes: unknown;
   revision: number;
 }>(
   sourceServices: T[],
@@ -479,6 +514,9 @@ export function validateSlotReservationPreservation(
 
   // Reserved capacity must never drop below active reservations or existing recorded reservedCapacity
   const safeReserved = Math.max(targetSlot.reservedCapacity, activeReservations);
+  if (stagingClosed && !targetSlot.closed && safeReserved > 0) {
+    throw new Error('Cannot close a production slot with reservations');
+  }
   // Total capacity must never drop below active reservations or safeReserved
   const safeCapacity = Math.max(stagingCapacity, safeReserved);
 
@@ -525,6 +563,16 @@ export async function runPromotion(options: PromotionOptions) {
     await targetDb.$queryRaw`SELECT 1`;
     console.log('✔ Connected to Source and Target databases successfully.\n');
 
+    if (options.includeUatServices) throw new Error('UAT/DEMO promotion is forbidden');
+    const sourceIdentity = await sourceDb.$queryRaw<Array<{ databaseName: string; serverUuid: string }>>`SELECT DATABASE() AS databaseName, @@server_uuid AS serverUuid`;
+    const targetIdentity = await targetDb.$queryRaw<Array<{ databaseName: string; serverUuid: string }>>`SELECT DATABASE() AS databaseName, @@server_uuid AS serverUuid`;
+    if (sourceIdentity[0]?.databaseName !== sourceDbName || targetIdentity[0]?.databaseName !== targetDbName) {
+      throw new Error('Connected MySQL identity differs from approved database names');
+    }
+    const sourceFingerprint = await configurationFingerprint(sourceDb);
+    const targetFingerprint = await configurationFingerprint(targetDb);
+    const reservationsFingerprint = await reservationFingerprint(targetDb);
+
     // Capture Target Baseline State (all critical transactional and config counts)
     const targetBaselineState = {
       questionnaires: await targetDb.questionnaire.count(),
@@ -551,7 +599,7 @@ export async function runPromotion(options: PromotionOptions) {
 
     // --- 1. QUESTIONNAIRE ---
     const allSourceQ = await sourceDb.questionnaire.findMany({ orderBy: { version: 'asc' } });
-    const approvedQ = allSourceQ.filter(q => q.status === 'published' || q.approvedBy !== null);
+    const approvedQ = allSourceQ.filter(q => q.status === 'published' && Boolean(q.approvedBy?.trim()));
     const targetQ = await targetDb.questionnaire.findMany();
     const targetQMap = new Map(targetQ.map(q => [q.version, q]));
 
@@ -843,7 +891,6 @@ export async function runPromotion(options: PromotionOptions) {
 
     // --- 5. PACKAGE ITEM (Business Key Resolution) ---
     const targetPkgItems = await targetDb.packageItem.findMany();
-    const targetItemKeySet = new Set(targetPkgItems.map(i => `${i.packageId}_${i.serviceId}`));
     const sourcePkgMap = new Map(allSourcePackages.map(p => [p.id, p]));
 
     let piIns = 0, piUpd = 0, piSkip = 0;
@@ -855,7 +902,6 @@ export async function runPromotion(options: PromotionOptions) {
       const targetSvc = targetServiceMap.get(sCode);
 
       if (targetPkg && targetSvc) {
-        const itemKey = `${targetPkg.id}_${targetSvc.id}`;
         const existingItem = targetPkgItems.find(i => i.packageId === targetPkg.id && i.serviceId === targetSvc.id);
         if (existingItem) {
           if (existingItem.position === item.position && existingItem.mode === item.mode) {
@@ -928,6 +974,13 @@ export async function runPromotion(options: PromotionOptions) {
     let dcIns = 0, dcUpd = 0, dcSkip = 0;
     for (const cap of approvedCapacities) {
       const existing = targetCapMap.get(cap.id);
+      if (existing && (existing.capacity !== cap.capacity || existing.blackout !== cap.blackout)) {
+        const occupied = await targetDb.slot.findFirst({
+          where: { dayId: cap.id, OR: [{ reservedCapacity: { gt: 0 } }, { bookings: { some: {} } }, { holds: { some: {} } }] },
+          select: { id: true },
+        });
+        if (occupied) throw new Error('Occupied production day requires manual capacity review before promotion');
+      }
       if (!existing) {
         dcIns++;
         recordManifest.push({
@@ -998,6 +1051,9 @@ export async function runPromotion(options: PromotionOptions) {
           details: `Starts: ${slot.startsAt.toISOString()}, Cap: ${slot.capacity}, Initial Reserved: 0`,
         });
       } else {
+        if (existing.dayId !== slot.dayId || existing.endsAt.getTime() !== slot.endsAt.getTime()) {
+          throw new Error('Slot time/day conflict requires manual resolution before promotion');
+        }
         const check = validateSlotReservationPreservation(slot.capacity, slot.closed, existing);
         if (check.conflict) {
           slotUpd++;
@@ -1041,6 +1097,9 @@ export async function runPromotion(options: PromotionOptions) {
 
     // List of Reviewed Conflicts
     const conflicts = recordManifest.filter(r => r.destinationConflict);
+    if (conflicts.some(record => ['Questionnaire', 'Price', 'Package', 'PackageItem'].includes(record.table))) {
+      throw new Error('Published version conflict: create a new approved version instead of overwriting production history');
+    }
     if (conflicts.length > 0) {
       console.log(`\n⚠️  PRODUCTION CONFLICTS IDENTIFIED (${conflicts.length} items will UPDATE existing Production data):`);
       for (const c of conflicts) {
@@ -1063,7 +1122,12 @@ export async function runPromotion(options: PromotionOptions) {
 
     // Build Complete Manifest Document
     const manifestDocument = {
-      timestamp: new Date().toISOString(),
+      formatVersion: 2,
+      sourceIdentity,
+      targetIdentity,
+      sourceFingerprint,
+      targetFingerprint,
+      reservationsFingerprint,
       sourceDatabase: sourceDbName,
       targetDatabase: targetDbName,
       options: {
@@ -1072,7 +1136,8 @@ export async function runPromotion(options: PromotionOptions) {
       },
       targetBaselineState,
       projections,
-      recordManifest,
+      recordManifest: recordManifest.sort((a, b) =>
+        `${a.table}:${a.businessKey}`.localeCompare(`${b.table}:${b.businessKey}`, 'en')),
       conflicts,
       excludedItems: allExcludedItems,
       integrityAudit: {
@@ -1087,8 +1152,17 @@ export async function runPromotion(options: PromotionOptions) {
     const manifestChecksum = createHash('sha256').update(manifestJson).digest('hex');
 
     console.log(`\n🔑 Manifest SHA-256 Checksum: ${manifestChecksum}`);
-    console.log(`📁 Saving manifest to: ${options.manifestFile}`);
-    writeFileSync(options.manifestFile, manifestJson, 'utf8');
+    if (await configurationFingerprint(sourceDb) !== sourceFingerprint ||
+        await configurationFingerprint(targetDb) !== targetFingerprint ||
+        await reservationFingerprint(targetDb) !== reservationsFingerprint) {
+      throw new Error('Database changed while preparing promotion plan; retry PREPARE');
+    }
+    if (options.dryRun) {
+      writeFileSync(options.manifestFile, manifestJson, { encoding: 'utf8', mode: 0o600 });
+    } else {
+      // Never overwrite the evidence approved by the operator during APPLY.
+      verifyApprovedManifest(readFileSync(options.manifestFile, 'utf8'), options.manifestChecksum!, manifestDocument);
+    }
 
     // Exclusion Guarantee
     console.log('\n🛡️ DATA LEAK PREVENTION AUDIT:');
@@ -1141,6 +1215,16 @@ export async function runPromotion(options: PromotionOptions) {
 
     await targetDb.$transaction(
       async (tx) => {
+        // Lock capacity in the same order as booking operations. Serializable
+        // range locks also protect inserts; lock failures abort the transaction.
+        await tx.$queryRaw`SELECT id FROM DayCapacity ORDER BY id FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM Slot ORDER BY id FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM Booking ORDER BY id FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM Hold ORDER BY id FOR UPDATE`;
+        if (await configurationFingerprint(tx) !== targetFingerprint ||
+            await reservationFingerprint(tx) !== reservationsFingerprint) {
+          throw new Error('Target changed since PREPARE; transaction aborted');
+        }
         // 1. Questionnaire
         for (const q of approvedQ) {
           await tx.questionnaire.upsert({
@@ -1381,7 +1465,7 @@ export async function runPromotion(options: PromotionOptions) {
           },
         });
       },
-      { timeout: 60000 }
+      { timeout: 60000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     );
 
     console.log('\n🎉 PROMOTION APPLIED SUCCESSFULLY IN A SINGLE TRANSACTION!');

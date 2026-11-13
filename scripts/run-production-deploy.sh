@@ -8,7 +8,7 @@
 set -Eeuo pipefail
 
 STAGE="${1:-}"
-TARGET_BRANCH="${2:-feature/staging-uat}"
+TARGET_BRANCH="${2:-feature/rc03-production-readiness}"
 TARGET_COMMIT="${3:-}"
 
 # Parse optional flags from remaining arguments
@@ -73,6 +73,8 @@ if [[ "$STAGE" != "prepare" && "$STAGE" != "apply" ]]; then
 fi
 
 cd "$SOURCE_DIR" || die "Cannot access source directory: $SOURCE_DIR"
+exec 9>"$(dirname "$STATE_FILE")/promotion-runner.lock"
+flock -n 9 || die "Another production PREPARE/APPLY is running"
 
 # Common Pre-Checks
 if [[ -f "$PROD_ENV_FILE" ]]; then
@@ -88,15 +90,18 @@ if [[ -f "$PROD_ENV_FILE" ]]; then
 fi
 
 # Resolve Target Commit
-git fetch origin "$TARGET_BRANCH" 2>/dev/null || true
+[[ -z "$(git status --porcelain)" ]] || die "Source checkout has local changes; use a clean checkout."
+[[ "$TARGET_COMMIT" =~ ^[a-f0-9]{40}$ ]] || die "An explicit reviewed full 40-character commit is required."
+git fetch origin "$TARGET_BRANCH" || die "Cannot fetch reviewed branch"
 if [[ -z "$TARGET_COMMIT" ]]; then
   TARGET_COMMIT=$(git rev-parse "origin/$TARGET_BRANCH" 2>/dev/null || git rev-parse HEAD)
 else
   TARGET_COMMIT=$(git rev-parse "$TARGET_COMMIT")
 fi
-git checkout "$TARGET_BRANCH" 2>/dev/null || true
-git reset --hard "$TARGET_COMMIT" 2>/dev/null || true
+git merge-base --is-ancestor "$TARGET_COMMIT" "origin/$TARGET_BRANCH" || die "Commit is not on the requested branch"
+git checkout --detach "$TARGET_COMMIT" || die "Cannot check out reviewed commit"
 ACTUAL_COMMIT=$(git rev-parse HEAD)
+[[ "$ACTUAL_COMMIT" == "$TARGET_COMMIT" ]] || die "Checkout SHA mismatch"
 log_pass "Source checkout verified at commit: $ACTUAL_COMMIT"
 
 # Migration Digest Fail-Closed Check
@@ -137,7 +142,7 @@ if [[ "$STAGE" == "prepare" ]]; then
   if [[ -f "/var/www/pdhcheckup/shared/production/backup.cnf" ]]; then
     mysqldump --defaults-extra-file="/var/www/pdhcheckup/shared/production/backup.cnf" \
       --host=127.0.0.1 --single-transaction --quick --no-tablespaces --set-gtid-purged=OFF \
-      --databases pdh_healthcheck | gzip > "$PRE_DEPLOY_BACKUP"
+      pdh_healthcheck | gzip > "$PRE_DEPLOY_BACKUP"
     chmod 600 "$PRE_DEPLOY_BACKUP"
     gzip -t "$PRE_DEPLOY_BACKUP" || die "Corrupt backup file generated: $PRE_DEPLOY_BACKUP"
     PRE_BACKUP_SHA256=$(sha256sum "$PRE_DEPLOY_BACKUP" | cut -d' ' -f1)
@@ -145,8 +150,7 @@ if [[ "$STAGE" == "prepare" ]]; then
     log_pass "Verified Production backup created: $PRE_DEPLOY_BACKUP"
     log_info "Backup SHA-256: $PRE_BACKUP_SHA256"
   else
-    log_warn "Dedicated backup.cnf not found in this environment; skipping physical mysqldump."
-    PRE_DEPLOY_BACKUP="none"
+    die "Dedicated backup.cnf is mandatory; PREPARE cannot succeed without a physical backup."
     PRE_BACKUP_SHA256="none"
   fi
 
@@ -220,6 +224,9 @@ fi
 # shellcheck source=/dev/null
 source "$STATE_FILE"
 
+[[ "$PREPARE_DIGEST" == "$CALCULATED_DIGEST" ]] || die "Migration digest changed since PREPARE"
+[[ "$PREPARE_PROMOTE_APPROVED_PRICES" == "$PROMOTE_APPROVED_PRICES" ]] || die "Price promotion option differs from PREPARE"
+
 if [[ "$ACTUAL_COMMIT" != "$PREPARE_COMMIT" ]]; then
   die "COMMIT MISMATCH: Checkout commit ($ACTUAL_COMMIT) does not match PREPARE commit ($PREPARE_COMMIT)."
 fi
@@ -235,9 +242,17 @@ fi
 log_pass "Operator approval and manifest checksum matched: $CLI_MANIFEST_CHECKSUM"
 
 # Verify Backup Integrity Before Apply
-if [[ "$PREPARE_BACKUP" != "none" && -f "$PREPARE_BACKUP.sha256" ]]; then
+if [[ "$PREPARE_BACKUP" != "none" && -s "$PREPARE_BACKUP" && -s "$PREPARE_BACKUP.sha256" ]]; then
+  gzip -t "$PREPARE_BACKUP" || die "Backup archive is corrupt"
   (cd "$(dirname "$PREPARE_BACKUP")" && sha256sum -c "$PREPARE_BACKUP.sha256" --status) || die "Pre-deployment backup verification failed!"
+  BACKUP_SHA256=$(sha256sum "$PREPARE_BACKUP" | cut -d' ' -f1)
+  [[ -n "${RESTORE_VERIFICATION_FILE:-}" ]] || die "An isolated restore verification receipt is required."
+  node scripts/verify-promotion-restore.mjs \
+    "--check-receipt=$RESTORE_VERIFICATION_FILE" "--backup-sha=$BACKUP_SHA256" \
+    "--manifest-checksum=$CLI_MANIFEST_CHECKSUM" "--commit=$ACTUAL_COMMIT" || die "Restore verification receipt rejected"
   log_pass "Pre-deployment backup integrity verified."
+else
+  die "Verified PREPARE backup and checksum are mandatory before APPLY."
 fi
 
 echo -e "\n[APPLY 2/5] Building and Deploying Production Release..."

@@ -306,7 +306,7 @@ test("select multiple histories, add and remove details, preserve language and l
     String.fromCharCode(10),
   );
   const response = await page.request.post("/api/v1/registrations", {
-    headers: { Origin: "http://localhost:3037" },
+    headers: { Origin: process.env.APP_URL! },
     data: {
       person: {
         firstName: "Legacy",

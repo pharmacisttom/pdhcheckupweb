@@ -33,7 +33,12 @@
     "promote:dry": "tsx scripts/promote-config-data.ts --dry-run",
     "promote:apply": "tsx scripts/promote-config-data.ts --apply",
     "deploy:prod:prepare": "bash scripts/run-production-deploy.sh prepare",
-    "deploy:prod:apply": "bash scripts/run-production-deploy.sh apply"
+    "deploy:prod:apply": "bash scripts/run-production-deploy.sh apply",
+    "sandbox:init": "tsx scripts/sandbox.ts init",
+    "sandbox:prepare": "tsx scripts/sandbox.ts prepare",
+    "sandbox:dev": "tsx scripts/sandbox.ts dev",
+    "sandbox:build": "tsx scripts/sandbox.ts build",
+    "sandbox:start": "tsx scripts/sandbox.ts start"
   },
   "keywords": [],
   "author": "",

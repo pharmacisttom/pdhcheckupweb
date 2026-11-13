@@ -11,6 +11,9 @@ const env = {
   ...process.env,
   DATABASE_URL: url.toString(),
   RUN_DB_TESTS: "true",
+  // Handler integration fixtures use this origin; browser tests use 3037 in
+  // their own config. Do not inherit a staging or browser APP_URL here.
+  APP_URL: "http://localhost:3036",
   OTP_PROVIDER: "test",
   EMAIL_PROVIDER: "disabled",
 };
