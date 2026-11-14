@@ -8,7 +8,7 @@
 set -Eeuo pipefail
 
 STAGE="${1:-}"
-TARGET_BRANCH="${2:-feature/staging-uat}"
+TARGET_BRANCH="${2:-}"
 TARGET_COMMIT="${3:-}"
 
 # Parse optional flags from remaining arguments
@@ -88,16 +88,17 @@ if [[ -f "$PROD_ENV_FILE" ]]; then
 fi
 
 # Resolve Target Commit
-git fetch origin "$TARGET_BRANCH" 2>/dev/null || true
-if [[ -z "$TARGET_COMMIT" ]]; then
-  TARGET_COMMIT=$(git rev-parse "origin/$TARGET_BRANCH" 2>/dev/null || git rev-parse HEAD)
-else
-  TARGET_COMMIT=$(git rev-parse "$TARGET_COMMIT")
-fi
-git checkout "$TARGET_BRANCH" 2>/dev/null || true
-git reset --hard "$TARGET_COMMIT" 2>/dev/null || true
+# Never mutate or discard an operator's checkout during PREPARE or APPLY.
+# The reviewed release must already be checked out cleanly at its exact commit.
+[[ -n "$TARGET_BRANCH" && -n "$TARGET_COMMIT" ]] || die "Explicit branch and full commit SHA are required."
+[[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "Commit must be a full lowercase 40-character SHA."
+[[ -z "$(git status --porcelain --untracked-files=normal)" ]] || die "Working tree is not clean; preserve operator changes and use a separate clean worktree."
 ACTUAL_COMMIT=$(git rev-parse HEAD)
-log_pass "Source checkout verified at commit: $ACTUAL_COMMIT"
+[[ "$ACTUAL_COMMIT" == "$TARGET_COMMIT" ]] || die "HEAD differs from reviewed commit; refusing implicit checkout/reset."
+git show-ref --verify --quiet "refs/heads/$TARGET_BRANCH" || die "Requested local branch does not exist."
+BRANCH_COMMIT=$(git rev-parse "refs/heads/$TARGET_BRANCH")
+[[ "$BRANCH_COMMIT" == "$ACTUAL_COMMIT" ]] || die "Branch tip differs from reviewed commit."
+log_pass "Clean source and exact reviewed branch/commit verified: $ACTUAL_COMMIT"
 
 # Migration Digest Fail-Closed Check
 log_info "Independently verifying migration digest from Git archive..."
@@ -145,9 +146,7 @@ if [[ "$STAGE" == "prepare" ]]; then
     log_pass "Verified Production backup created: $PRE_DEPLOY_BACKUP"
     log_info "Backup SHA-256: $PRE_BACKUP_SHA256"
   else
-    log_warn "Dedicated backup.cnf not found in this environment; skipping physical mysqldump."
-    PRE_DEPLOY_BACKUP="none"
-    PRE_BACKUP_SHA256="none"
+    die "Dedicated production backup.cnf is missing. PREPARE cannot succeed without a backup."
   fi
 
   echo -e "\n[PREPARE 3/4] Running Configuration Promotion Dry-Run (Read-Only)..."
@@ -232,13 +231,15 @@ CURRENT_MANIFEST_CHECKSUM=$(sha256sum "$MANIFEST_FILE" | cut -d' ' -f1)
 if [[ "$CURRENT_MANIFEST_CHECKSUM" != "$PREPARE_MANIFEST_CHECKSUM" ]]; then
   die "TAMPER DETECTED: Manifest file has been modified since PREPARE! ($CURRENT_MANIFEST_CHECKSUM != $PREPARE_MANIFEST_CHECKSUM)"
 fi
-log_pass "Operator approval and manifest checksum matched: $CLI_MANIFEST_CHECKSUM"
+[[ "${PREPARE_PROMOTE_APPROVED_PRICES:-}" == "$PROMOTE_APPROVED_PRICES" ]] || die "Price promotion flag differs between PREPARE and APPLY."
+[[ "${PREPARE_DIGEST:-}" == "$CALCULATED_DIGEST" ]] || die "Migration digest differs between PREPARE and APPLY."
+log_pass "Operator approval, options and manifest checksum matched: $CLI_MANIFEST_CHECKSUM"
 
 # Verify Backup Integrity Before Apply
-if [[ "$PREPARE_BACKUP" != "none" && -f "$PREPARE_BACKUP.sha256" ]]; then
-  (cd "$(dirname "$PREPARE_BACKUP")" && sha256sum -c "$PREPARE_BACKUP.sha256" --status) || die "Pre-deployment backup verification failed!"
-  log_pass "Pre-deployment backup integrity verified."
-fi
+[[ -n "${PREPARE_BACKUP:-}" && "$PREPARE_BACKUP" != "none" && -f "$PREPARE_BACKUP" && -f "$PREPARE_BACKUP.sha256" ]] || die "Required pre-deployment backup or checksum missing."
+(cd "$(dirname "$PREPARE_BACKUP")" && sha256sum -c "$PREPARE_BACKUP.sha256" --status) || die "Pre-deployment backup verification failed!"
+gzip -t "$PREPARE_BACKUP" || die "Pre-deployment backup gzip validation failed."
+log_pass "Pre-deployment backup integrity verified (restore rehearsal still requires separate approval)."
 
 echo -e "\n[APPLY 2/5] Building and Deploying Production Release..."
 export APPROVED_MIGRATIONS_SHA256="$APPROVED_MIGRATION_DIGEST"
