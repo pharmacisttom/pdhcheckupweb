@@ -322,7 +322,7 @@ test("service metadata editor and slot lifecycle", async ({
   d = page.getByRole("dialog");
   await d.getByLabel("วันให้บริการ", { exact: true }).fill(day);
   await d.getByLabel("เวลาเริ่มต้น (ไทย)", { exact: true }).fill("09:00");
-  await d.getByLabel("ความจุรายวัน", { exact: true }).fill("10");
+  await d.getByLabel("ความจุรวมรายวัน (เว้นว่างได้หากใช้วันเดิม)", { exact: true }).fill("10");
   await d.getByLabel("ความจุช่วงเวลา", { exact: true }).fill("5");
   await save(page);
   const slot = await db.slot.findFirstOrThrow({ where: { dayId: day } });
@@ -400,7 +400,7 @@ test("finance approval bill payment and ledger UI", async ({
       .getByLabel("ยอดเงิน (ยกเลิกเอกสารให้ระบุ 0)", { exact: true })
       .fill(amount);
     await d
-      .getByLabel("เลขหลักฐาน/เอกสารอ้างอิง", { exact: true })
+      .getByLabel("เลขหลักฐาน/เอกสารอ้างอิง (จำเป็นเมื่อรับชำระหรือคืนเงิน)", { exact: true })
       .fill("SYNTHETIC-ONLY");
     await d
       .getByLabel("เหตุผล / บันทึกดำเนินการ")
