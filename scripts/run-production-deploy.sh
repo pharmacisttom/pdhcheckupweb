@@ -98,8 +98,8 @@ if [[ -z "$TARGET_COMMIT" ]]; then
 else
   TARGET_COMMIT=$(git rev-parse "$TARGET_COMMIT")
 fi
-git merge-base --is-ancestor "$TARGET_COMMIT" "origin/$TARGET_BRANCH" || die "Commit is not on the requested branch"
-git checkout --detach "$TARGET_COMMIT" || die "Cannot check out reviewed commit"
+[[ "$(git rev-parse "origin/$TARGET_BRANCH")" == "$TARGET_COMMIT" ]] || die "Selected commit must be the fetched branch tip"
+[[ "$(git branch --show-current)" == "$TARGET_BRANCH" ]] || die "Source checkout must be on the requested branch; switch it explicitly before PREPARE/APPLY"
 ACTUAL_COMMIT=$(git rev-parse HEAD)
 [[ "$ACTUAL_COMMIT" == "$TARGET_COMMIT" ]] || die "Checkout SHA mismatch"
 log_pass "Source checkout verified at commit: $ACTUAL_COMMIT"

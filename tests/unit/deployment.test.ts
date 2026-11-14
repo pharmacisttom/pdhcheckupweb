@@ -4,7 +4,14 @@ import { describe, it, expect } from "vitest";
 import { validateSettings } from "../../deploy/shared/validate-env.mjs";
 // @ts-expect-error Native Node ESM utility.
 import { computeMigrationDigest } from "../../scripts/compute-migration-digest.mjs";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  cpSync,
+  readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const prod = {
@@ -214,6 +221,24 @@ describe("migration digest verification & tamper resistance", () => {
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("RC03 promotion/deployment branch contract", () => {
+  it("keeps the reviewed branch checked out for the immutable release deployer", () => {
+    const runner = readFileSync(
+      join(process.cwd(), "scripts/run-production-deploy.sh"),
+      "utf8",
+    );
+    const releaseDeployer = readFileSync(
+      join(process.cwd(), "deploy/shared/deploy.sh"),
+      "utf8",
+    );
+
+    expect(runner).toContain('git branch --show-current)" == "$TARGET_BRANCH"');
+    expect(runner).toContain('git rev-parse "origin/$TARGET_BRANCH")" == "$TARGET_COMMIT"');
+    expect(runner).not.toContain('git checkout --detach "$TARGET_COMMIT"');
+    expect(releaseDeployer).toContain('git branch --show-current) == "$BRANCH"');
   });
 });
 

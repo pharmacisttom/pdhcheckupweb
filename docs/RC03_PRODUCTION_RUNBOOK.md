@@ -1,32 +1,39 @@
 # RC03 production runbook
 
-## Gate
+## Current status
 
-RC03 is **GO for review/UAT** and **NO-GO for unattended Production apply** until clinical, privacy/DPO, finance, backup-restore, operator and load approvals are recorded. No Production database was accessed by this work.
+RC03 is ready for code review and controlled UAT. The Production service currently uses `/var/www/pdhcheckup/source` as its deployment checkout and `/var/www/pdhcheckup/releases/production` as its runtime release. Production must remain on its current healthy release until the reviewed RC branch, backup restore, and deploy gates have passed.
+
+Do not run this procedure from `/home/deploy/pdh-rc03-20261112/repo`; that directory is an isolated test clone at the original RC base and contains test outputs/uncommitted files.
 
 ## Prepare
 
-```bash
-git fetch origin feature/rc03-production-readiness
-git checkout --detach 84f18c8c5152a1c0ba30a7d6c8fd2a5908defa47
-export DATABASE_URL='mysql://...'
-export SOURCE_DATABASE_URL='mysql://...'
-export TARGET_DATABASE_URL='mysql://...'
-bash scripts/run-production-deploy.sh --prepare
-```
-
-The prepare step creates an immutable manifest and mandatory compressed backup with SHA-256. An operator must restore that backup into the isolated database `pdh_healthcheck_restore_rc03` and run `scripts/verify-promotion-restore.mjs`; the resulting receipt is required for APPLY.
-
-## Apply (operator-approved only)
+After the PR has been reviewed and its exact commit is published at the remote RC branch, run as an authorized operator:
 
 ```bash
-RESTORE_VERIFICATION_FILE=/secure/rc03-restore-receipt.json \
-bash scripts/run-production-deploy.sh --apply
+cd /var/www/pdhcheckup/source
+sudo -u pdhcheckup git fetch origin feature/rc03-production-readiness
+sudo -u pdhcheckup git switch feature/rc03-production-readiness
+sudo -u pdhcheckup git pull --ff-only origin feature/rc03-production-readiness
+sudo -u pdhcheckup git status --short
+sudo -u pdhcheckup git rev-parse HEAD
+sudo -u pdhcheckup bash scripts/run-production-deploy.sh prepare feature/rc03-production-readiness FULL_REVIEWED_COMMIT_SHA
 ```
 
-The script verifies the exact commit, manifest, backup digest, restore receipt, database identity, and migration digest before a serializable transaction. Never pass a staging/UAT database or a production credential to a test-mode run.
+Confirm `git status --short` is empty and `HEAD` equals the reviewed full 40-character commit at the branch tip. PREPARE creates a compressed Production backup and promotion manifest. Inspect the manifest. Restore that exact backup to the isolated database `pdh_healthcheck_restore_rc03`, then run `scripts/verify-promotion-restore.mjs` to create the receipt. Use protected credentials and never use the Production database as the restore target.
 
-## Rollback
+## Apply
 
-Rollback the application to the previously approved release using the repository rollback script after compatibility review. Do not blindly restore a full database over new bookings; preserve post-release transactions and use the reviewed data-repair procedure.
+Only after the backup restore has been independently verified and the manifest contents approved, use the exact receipt path and checksum printed by PREPARE:
+
+```bash
+RESTORE_VERIFICATION_FILE=/absolute/path/to/rc03-restore-receipt.json \
+sudo -u pdhcheckup bash scripts/run-production-deploy.sh apply feature/rc03-production-readiness FULL_REVIEWED_COMMIT_SHA --manifest-checksum=PREPARE_MANIFEST_SHA256
+```
+
+Replace the uppercase placeholders with exact values; do not type them literally. The script requires the selected commit to be the fetched branch tip and the matching branch to be checked out. It validates PREPARE state, backup integrity, restore receipt, database identity, migration digest, then builds/activates the release and promotes configuration. It does not accept `--prepare`/`--apply`; the stage names are `prepare` and `apply`.
+
+## Rollback and post-deploy verification
+
+If activation or health checks fail, follow `deploy/production/rollback.sh` after schema compatibility review. Roll back the application release first; do not blindly restore a full database over bookings created after deployment. Preserve logs and the backup for investigation. Verify public health/readiness, staff login with MFA, CRUD persistence, booking/cancellation, and Thai/English/Chinese/Burmese/Khmer rendering before clinical UAT.
 
