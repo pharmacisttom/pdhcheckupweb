@@ -103,6 +103,8 @@ import {
   questionnaireSchema,
   draftQuestionnaire,
   approveQuestionnaire,
+  updateDraftQuestionnaire,
+  archiveQuestionnaire,
 } from "./services/questionnaires";
 
 const str = z.string().min(1).max(100);
@@ -1144,6 +1146,23 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
   if (resource === "questionnaires" && method === "POST") {
     const s = await guard("questionnaire:write");
     return draftQuestionnaire(await body(req, questionnaireSchema), s.user!.id);
+  }
+  if (resource === "questionnaires/update" && method === "POST") {
+    const s = await guard("questionnaire:write");
+    const input = await body(req, questionnaireSchema.extend({
+      id: str,
+      revision: z.number().int().nonnegative(),
+    }));
+    return updateDraftQuestionnaire(input, s.user!.id);
+  }
+  if (resource === "questionnaires/archive" && method === "POST") {
+    const s = await guard("questionnaire:write");
+    const input = await body(req, z.object({
+      id: str,
+      revision: z.number().int().nonnegative(),
+      reason: z.string().trim().min(3).max(500),
+    }));
+    return archiveQuestionnaire(input, s.user!.id);
   }
   if (resource === "questionnaires/approve" && method === "POST") {
     const s = await guard("questionnaire:write");
