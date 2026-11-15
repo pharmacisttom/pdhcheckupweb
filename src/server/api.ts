@@ -1149,7 +1149,7 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
   }
   if (resource === "questionnaires/update" && method === "POST") {
     const s = await guard("questionnaire:write");
-    const input = await body(req, questionnaireSchema.extend({
+    const input = await body(req, questionnaireSchema.safeExtend({
       id: str,
       revision: z.number().int().nonnegative(),
     }));
