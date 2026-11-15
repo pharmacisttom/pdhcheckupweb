@@ -169,7 +169,7 @@ export async function archiveQuestionnaire(
     });
     if (updated.count !== 1)
       throw new AppError(409, "แบบประเมินถูกแก้ไขโดยผู้อื่น กรุณาโหลดใหม่");
-    await audit(tx, actorId, "questionnaire.archived", input.id + ": " + input.reason);
+    await audit(tx, actorId, "questionnaire.archived", input.id, { reason: input.reason });
     return { id: input.id, status: "archived", revision: input.revision + 1 };
   });
 }
