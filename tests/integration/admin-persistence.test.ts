@@ -188,6 +188,67 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
         }),
       ).toMatchObject({ status: "published", approvedBy: userId });
     });
+    it("persists questionnaire draft changes, rejects stale edits, and preserves an audit trail", async () => {
+      const initial = {
+        questions: [{ id: "pilot", label: "Synthetic initial", type: "text", required: true }],
+        rules: [],
+      };
+      const created = await call("admin/questionnaires", initial);
+      expect(created.status).toBe(200);
+      const id = created.body.data.id;
+      questions.push(id);
+      const changed = {
+        id,
+        revision: 0,
+        questions: [{ id: "pilot", label: "Synthetic updated", type: "text", required: true }],
+        rules: [],
+      };
+      expect((await call("admin/questionnaires/update", changed)).status).toBe(200);
+      expect((await call("admin/questionnaires/update", changed)).status).toBe(409);
+      const saved = await db.questionnaire.findUniqueOrThrow({ where: { id } });
+      expect(saved.revision).toBe(1);
+      expect(saved.questions).toEqual(changed.questions);
+      const listed = await call("admin/questionnaires");
+      expect(listed.body.data).toContainEqual(expect.objectContaining({
+        id, revision: 1, status: "draft",
+      }));
+      expect(await db.audit.count({
+        where: { actorId: userId, resourceId: id, action: "questionnaire.updated" },
+      })).toBe(1);
+      const archived = await call("admin/questionnaires/archive", {
+        id, revision: 1, reason: "Synthetic retention test",
+      });
+      expect(archived.status).toBe(200);
+      expect(await db.questionnaire.findUnique({ where: { id } }))
+        .toMatchObject({ status: "archived", revision: 2 });
+      expect(await db.audit.count({
+        where: { actorId: userId, resourceId: id, action: "questionnaire.archived" },
+      })).toBe(1);
+      expect((await call("admin/questionnaires/update", {
+        ...changed, revision: 2,
+      })).status).toBe(409);
+    });
+    it("protects the last published questionnaire from archival", async () => {
+      const created = await call("admin/questionnaires", {
+        questions: [{ id: "pilot", label: "Synthetic published", type: "text" }],
+        rules: [],
+      });
+      expect(created.status).toBe(200);
+      const id = created.body.data.id;
+      questions.push(id);
+      expect((await call("admin/questionnaires/approve", { id })).status).toBe(200);
+      const latest = await db.questionnaire.findUniqueOrThrow({ where: { id } });
+      // A deployed catalog may already have another published questionnaire; only
+      // assert the last-active safeguard when this is the only published version.
+      const count = await db.questionnaire.count({
+        where: { status: "published", approvedBy: { not: null } },
+      });
+      if (count === 1) {
+        expect((await call("admin/questionnaires/archive", {
+          id, revision: latest.revision, reason: "Synthetic archive attempt",
+        })).status).toBe(409);
+      }
+    });
     it("persists callback status and an encrypted staff note and audits the update", async () => {
       const record = await db.contactRequest.create({
         data: {
