@@ -588,7 +588,7 @@ export async function chatRoute(
         })
         .strict(),
     );
-    await db.$transaction(
+    const saved = await db.$transaction(
       async (tx) => {
         await tx.$queryRaw`SELECT id FROM ChatDepartment WHERE id=${v.id} FOR UPDATE`;
         if (
@@ -606,16 +606,40 @@ export async function chatRoute(
             409,
             "ยังมีบทสนทนาที่ไม่ปิด กรุณาโอนหรือปิดเรื่องก่อนปิดหน่วยงาน",
           );
-        await tx.chatDepartment.upsert({
+        const department = await tx.chatDepartment.upsert({
           where: { id: v.id },
           create: v,
           update: { name: v.name, active: v.active },
         });
         await audit(tx, actor.user!.id, "chat.department_updated", v.id);
+        return department;
       },
       { isolationLevel: "ReadCommitted" },
     );
-    return { ok: true };
+    // Read back after the transaction commits. The admin UI relies on this
+    // response to confirm that the mutation reached persistent storage.
+    const persisted = await db.chatDepartment.findUniqueOrThrow({
+      where: { id: v.id },
+      select: { id: true, name: true, active: true },
+    });
+    if (
+      saved.id !== persisted.id ||
+      saved.name !== persisted.name ||
+      saved.active !== persisted.active ||
+      persisted.name !== v.name ||
+      persisted.active !== v.active
+    ) {
+      console.error(JSON.stringify({
+        event: "chat.department.persistence_mismatch",
+        expectedActive: v.active,
+        transactionActive: saved.active,
+        persistedActive: persisted.active,
+        transactionNameMatches: saved.name === v.name,
+        persistedNameMatches: persisted.name === v.name,
+      }));
+      throw new AppError(503, "บันทึกหน่วยงานไม่สำเร็จ กรุณาลองใหม่");
+    }
+    return { ok: true, department: persisted };
   }
   if (resource === "admin/chat/agents" && post) {
     const actor = (await guard("chat:settings"))!;

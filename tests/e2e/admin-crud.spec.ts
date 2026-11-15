@@ -597,9 +597,25 @@ test("chat department create rename and deactivate UI", async ({
     .getByLabel("ชื่อหน่วยงาน", { exact: true })
     .fill("Synthetic revised department");
   await editForm.getByLabel("เปิดใช้งาน", { exact: true }).uncheck();
+  const updateResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/v1/admin/chat/departments") &&
+      response.request().method() === "POST",
+  );
   await editForm
     .getByRole("button", { name: "บันทึกหน่วยงาน", exact: true })
     .click();
+  const updated = await (await updateResponse).json();
+  expect(updated.data.department).toMatchObject({
+    id: depId,
+    name: "Synthetic revised department",
+    active: false,
+  });
+  await expect(page.getByRole("status")).toHaveText("บันทึกเรียบร้อย");
+  await expect(editForm.getByLabel("ชื่อหน่วยงาน", { exact: true })).toHaveValue(
+    "Synthetic revised department",
+  );
+  await expect(editForm.getByLabel("เปิดใช้งาน", { exact: true })).not.toBeChecked();
   await expect
     .poll(
       async () =>

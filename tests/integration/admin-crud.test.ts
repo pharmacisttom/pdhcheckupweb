@@ -903,6 +903,9 @@ describe.skipIf(!enabled)("complete admin CRUD isolated MySQL", () => {
         })
       ).status,
     ).toBe(200);
+    expect(
+      await db.chatDepartment.findUniqueOrThrow({ where: { id: dep } }),
+    ).toMatchObject({ name: "Synthetic dept", active: false });
   });
   it("atomic first-use rate limiter handles concurrent requests", async () => {
     const key = "synthetic-crud:" + marker;
