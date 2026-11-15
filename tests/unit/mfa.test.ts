@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { operatorTotp, validOperatorTotp } from '../../src/lib/mfa';
+import { matchingOperatorTotpStep, operatorTotp, validOperatorTotp } from '../../src/lib/mfa';
 describe('operator TOTP enrollment and login', () => {
   const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
   it('matches RFC 6238 SHA1 at 59 seconds (six digits)', () => {
@@ -16,6 +16,15 @@ describe('operator TOTP enrollment and login', () => {
     expect(validOperatorTotp(secret, ' 287 082 ', 59000)).toBe(true);
     expect(validOperatorTotp(secret, '287-082', 59000)).toBe(true);
     expect(validOperatorTotp(' gez dgn bvg y3t qoj qge zdg nbv gy3 tqo jq ', '287082', 59000)).toBe(true);
+  });
+  it('returns the accepted counter at drift boundaries and no counter for invalid proof', () => {
+    const now = 180000;
+    for (const delta of [-1, 0, 1]) {
+      const proof = operatorTotp(secret).generate({ timestamp: now + delta * 30000 });
+      expect(matchingOperatorTotpStep(secret, proof, now)).toBe(Math.floor(now / 30000) + delta);
+    }
+    expect(matchingOperatorTotpStep(secret, '000000', now)).toBeNull();
+    expect(matchingOperatorTotpStep(secret, 'bad', now)).toBeNull();
   });
   it('uses the hospital issuer and operator account in enrollment', () => {
     const uri = new URL(operatorTotp(secret, 'operator@example.invalid').toString());

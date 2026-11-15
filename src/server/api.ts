@@ -59,7 +59,9 @@ import {
 import { after, NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 import bcrypt from "bcryptjs";
-import { validOperatorTotp } from "@/lib/mfa";
+import { matchingOperatorTotpStep } from "@/lib/mfa";
+import { consumeTotpStep } from "./services/totp-replay";
+import { recordSecurityEvent } from "./services/security-events";
 import { randomInt } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
@@ -120,6 +122,9 @@ export async function api(req: Request, path: string[]) {
   const method = req.method;
   const url = new URL(req.url);
   const correlationId = crypto.randomUUID();
+  let securitySubject = "anonymous";
+  let securityFailureType: "login.failure" | "mfa.failure" | null = null;
+  let securityAuditFailed = false;
   try {
     if (!["GET", "HEAD"].includes(method)) {
       await sameOrigin(req);
@@ -133,6 +138,7 @@ export async function api(req: Request, path: string[]) {
       );
     }
     const identity = await identitySession(false);
+    securitySubject = identity?.userId ?? "anonymous";
     const restricted = identity?.userId && identity.stage !== "full";
     if (
       restricted &&
@@ -231,10 +237,11 @@ export async function api(req: Request, path: string[]) {
           .strict(),
       );
       await rateLimit("recovery-rotate:" + s.user.id, 5, 900);
-      if (
-        !(await bcrypt.compare(input.password, s.user.passwordHash)) ||
-        !validOperatorTotp(decrypt<string>(s.user.mfaSecret), input.mfa)
-      )
+      const recoveryPasswordValid = await bcrypt.compare(input.password, s.user.passwordHash);
+      const recoveryStep = matchingOperatorTotpStep(decrypt<string>(s.user.mfaSecret), input.mfa);
+      if (!recoveryPasswordValid || recoveryStep === null)
+        throw new AppError(403, "รหัสผ่านหรือ MFA ไม่ถูกต้อง");
+      if (!(await consumeTotpStep(s.user.id, "privileged-step-up", recoveryStep)))
         throw new AppError(403, "รหัสผ่านหรือ MFA ไม่ถูกต้อง");
       data = await db.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM User WHERE id=${s.user!.id} FOR UPDATE`;
@@ -355,6 +362,8 @@ export async function api(req: Request, path: string[]) {
           mfa: z.string().max(80).optional(),
         }),
       );
+      securitySubject = input.email.toLowerCase();
+      securityFailureType = "login.failure";
       await rateLimit("login:global", 500, 900);
       await rateLimit(
         "login:" + privateHash(input.email.toLowerCase()),
@@ -378,12 +387,16 @@ export async function api(req: Request, path: string[]) {
           "ACTIVATION_REQUIRED",
         );
       const cleanMfa = input.mfa ? input.mfa.trim().replace(/[\s-]+/g, "") : "";
-      if (
-        user.mfaSecret &&
-        !validOperatorTotp(decrypt<string>(user.mfaSecret), cleanMfa) &&
-        !recoveryHash(cleanMfa)
-      )
+      securitySubject = user.id;
+      securityFailureType = "mfa.failure";
+      const loginTotpStep = user.mfaSecret
+        ? matchingOperatorTotpStep(decrypt<string>(user.mfaSecret), cleanMfa)
+        : null;
+      if (user.mfaSecret && loginTotpStep === null && !recoveryHash(cleanMfa))
         throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
+      if (loginTotpStep !== null && !(await consumeTotpStep(user.id, "login", loginTotpStep)))
+        throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
+      securityFailureType = null;
       const old = await identitySession(false);
       const stage = user.mustChangePassword
         ? "password"
@@ -406,10 +419,7 @@ export async function api(req: Request, path: string[]) {
             401,
             "ข้อมูลบัญชีเปลี่ยนแปลง กรุณาเข้าสู่ระบบใหม่",
           );
-        if (
-          user.mfaSecret &&
-          !validOperatorTotp(decrypt<string>(user.mfaSecret), cleanMfa)
-        ) {
+        if (user.mfaSecret && loginTotpStep === null) {
           if (!(await consumeRecoveryCode(tx, user.id, cleanMfa)))
             throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
           await audit(tx, user.id, "auth.mfa_recovery_used", user.id);
@@ -929,7 +939,7 @@ export async function api(req: Request, path: string[]) {
       },
     );
   } catch (error) {
-    const status =
+    let status =
       (error as { code?: string })?.code === "P2002"
         ? 409
         : error instanceof AppError
@@ -937,6 +947,24 @@ export async function api(req: Request, path: string[]) {
           : error instanceof ZodError
             ? 422
             : 503;
+    if (status === 401 && securityFailureType) {
+      try {
+        await recordSecurityEvent(securityFailureType, securitySubject, resource);
+      } catch {
+        // Authentication denial remains denied; surface unavailable audit storage explicitly.
+        status = 503;
+        securityAuditFailed = true;
+        console.error(JSON.stringify({ event: "security_event.write_failed", correlationId }));
+      }
+    } else if (status === 403) {
+      try {
+        await recordSecurityEvent("authorization.denied", securitySubject, resource);
+      } catch {
+        status = 503;
+        securityAuditFailed = true;
+        console.error(JSON.stringify({ event: "security_event.write_failed", correlationId }));
+      }
+    }
     if (status >= 500) {
       const code = (error as { code?: string })?.code;
       console.error(
@@ -947,7 +975,7 @@ export async function api(req: Request, path: string[]) {
           method: ["GET", "POST"].includes(method) ? method : "OTHER",
           code:
             typeof code === "string" &&
-            /^(P[0-9]{4}|NOT_CONFIGURED)$/.test(code)
+            /^(P[0-9]{4}|NOT_CONFIGURED|OTP_DISABLED|PROVIDER_UNCONFIGURED)$/.test(code)
               ? code
               : "UNEXPECTED",
         }),
@@ -967,7 +995,9 @@ export async function api(req: Request, path: string[]) {
       {
         error: {
           code:
-            (error as { code?: string })?.code === "P2002"
+            securityAuditFailed
+              ? "SECURITY_AUDIT_UNAVAILABLE"
+              : (error as { code?: string })?.code === "P2002"
               ? "CONFLICT"
               : error instanceof AppError
                 ? error.code

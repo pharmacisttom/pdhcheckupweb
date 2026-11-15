@@ -25,6 +25,7 @@
     "email:check-domain": "node scripts/check-email-domain.mjs",
     "test:chat:e2e": "playwright test --config playwright.chat.config.ts",
     "chat:retention": "tsx scripts/chat-retention.ts",
+    "security-events:prune": "tsx --env-file=.env scripts/prune-security-events.ts",
     "chat:seed": "tsx --env-file=.env scripts/seed-health-chat.ts",
     "test:admin-crud:e2e": "playwright test --config playwright.admin-crud.config.ts",
     "seed:uat:dry": "tsx scripts/seed-uat-staging.ts --dry-run",

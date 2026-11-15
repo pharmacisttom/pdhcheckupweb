@@ -146,7 +146,7 @@ describe("chat deployment gates", () => {
 
 describe("migration digest verification & tamper resistance", () => {
   const APPROVED_DIGEST =
-    "664693a41280db0bc185ffd42f93ae535c38ffe621d61b892eb091580e69b8c8";
+    "d5b1c407a9a2f2feff0680bcd1be0cf7db3ed759e2f6f77a43fdb2a021551b7b";
 
   it("calculates the canonical approved digest for unmodified migrations", () => {
     const computed = computeMigrationDigest();

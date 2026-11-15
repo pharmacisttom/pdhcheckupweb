@@ -3,7 +3,8 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { AppError, audit, guard, hash, rateLimit, token } from "@/lib/security";
-import { validOperatorTotp } from "@/lib/mfa";
+import { matchingOperatorTotpStep } from "@/lib/mfa";
+import { consumeTotpStep } from "./totp-replay";
 import { decrypt, encrypt } from "@/lib/security";
 import { staffRoles } from "@/lib/staff-roles";
 import { staffPassword } from "./enrollment";
@@ -160,11 +161,13 @@ async function administrative<T>(
 ) {
   const identity = (await guard("users:manage"))!;
   await rateLimit("user-admin:" + identity.user!.id, 20, 900);
-  if (
-    !identity.user!.mfaSecret ||
-    !validOperatorTotp(decrypt<string>(identity.user!.mfaSecret), proof.mfa) ||
-    !(await bcrypt.compare(proof.password, identity.user!.passwordHash))
-  )
+  const passwordValid = await bcrypt.compare(proof.password, identity.user!.passwordHash);
+  const step = identity.user!.mfaSecret
+    ? matchingOperatorTotpStep(decrypt<string>(identity.user!.mfaSecret), proof.mfa)
+    : null;
+  if (!passwordValid || step === null)
+    throw new AppError(403, "กรุณายืนยันรหัสผ่านและ MFA ของผู้ดูแล");
+  if (!(await consumeTotpStep(identity.user!.id, "privileged-step-up", step)))
     throw new AppError(403, "กรุณายืนยันรหัสผ่านและ MFA ของผู้ดูแล");
   return db.$transaction(
     async (tx) => {

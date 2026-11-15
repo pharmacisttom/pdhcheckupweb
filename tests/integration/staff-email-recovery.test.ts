@@ -44,6 +44,8 @@ describe.skipIf(!enabled)(
       newPassword = "Changed-" + crypto.randomUUID(),
       secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
     let passwordHash: string;
+    let fakeNow = Date.now();
+    const proofTimes = new Map<string, number>();
     let manager: { id: string; email: string; token: string };
     const fetcher = vi.fn();
     async function makeUser(role = "registration", mfa = true, stage = "full") {
@@ -70,21 +72,35 @@ describe.skipIf(!enabled)(
     }
     async function call(path: string, cookie = "", data?: unknown) {
       context.token = cookie;
-      const r = await api(
-        new Request("http://localhost:3036/api/v1/" + path, {
-          method: data === undefined ? "GET" : "POST",
-          headers: {
-            Origin: "http://localhost:3036",
-            "Content-Type": "application/json",
-          },
-          ...(data === undefined ? {} : { body: JSON.stringify(data) }),
-        }),
-        path.split("?")[0].split("/"),
-      );
+      const payload = data as { verification?: { mfa?: string }; mfa?: string } | undefined;
+      const submittedMfa = payload?.verification?.mfa ?? payload?.mfa;
+      const proofTime = submittedMfa ? proofTimes.get(submittedMfa) : undefined;
+      if (proofTime) vi.spyOn(Date, "now").mockReturnValue(proofTime);
+      let r: Response;
+      try {
+        r = await api(
+          new Request("http://localhost:3036/api/v1/" + path, {
+            method: data === undefined ? "GET" : "POST",
+            headers: {
+              Origin: "http://localhost:3036",
+              "Content-Type": "application/json",
+            },
+            ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+          }),
+          path.split("?")[0].split("/"),
+        );
+      } finally {
+        if (proofTime) vi.restoreAllMocks();
+      }
       await Promise.all(context.jobs.splice(0));
       return { status: r.status, body: await r.json() };
     }
-    const proof = () => ({ password, mfa: operatorTotp(secret).generate() });
+    const proof = () => {
+      fakeNow = Math.max(fakeNow + 30000, Date.now() + 30000);
+      const mfa = operatorTotp(secret).generate({ timestamp: fakeNow });
+      proofTimes.set(mfa, fakeNow);
+      return { password, mfa };
+    };
     async function invite(extra: Record<string, unknown> = {}) {
       const r = await call("admin/users/invitations", manager.token, {
         email: crypto.randomUUID() + "@invited-email.invalid",
@@ -141,6 +157,7 @@ describe.skipIf(!enabled)(
       await db.user.deleteMany({ where: { id: { in: ids } } });
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();
+      vi.restoreAllMocks();
       await db.$disconnect();
     });
     it("creates invitation metadata without sending when disabled, rejects duplicate email and unauthorized invitation", async () => {

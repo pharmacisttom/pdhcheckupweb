@@ -21,6 +21,7 @@ model User {
   position String? @db.VarChar(160)
   passwordResets StaffPasswordReset[]
   mfaRecoveryCodes MfaRecoveryCode[]
+  totpStepUses TotpStepUse[]
   chatAgents ChatAgent[]
   createdAt DateTime @default(now()) @db.DateTime(3)
   sessions Session[]
@@ -279,6 +280,20 @@ model Audit {
   @@index([resourceId])
 }
 
+model SecurityEvent {
+ id String @id @default(cuid())
+ dedupKey String @unique @db.Char(64)
+ eventType String @db.VarChar(40)
+ subjectHash String @db.Char(64)
+ routeGroup String @db.VarChar(80)
+ windowStartedAt DateTime @db.DateTime(3)
+ lastSeenAt DateTime @db.DateTime(3)
+ occurrenceCount Int @default(1)
+ createdAt DateTime @default(now()) @db.DateTime(3)
+ @@index([createdAt])
+ @@index([eventType, createdAt])
+}
+
 model Waitlist {
   assigneeId String? @db.VarChar(191)
   noteEncrypted String? @db.Text
@@ -371,6 +386,17 @@ model MfaRecoveryCode {
  usedAt DateTime? @db.DateTime(3)
  createdAt DateTime @default(now()) @db.DateTime(3)
  @@index([userId,usedAt])
+}
+
+model TotpStepUse {
+ id String @id @default(cuid())
+ userId String
+ user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+ purpose String @db.VarChar(32)
+ timeStep Int
+ consumedAt DateTime @default(now()) @db.DateTime(3)
+ @@unique([userId, purpose, timeStep])
+ @@index([consumedAt])
 }
 
 model ChatDepartment {
