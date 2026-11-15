@@ -34,9 +34,12 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
       const url = new URL(process.env.DATABASE_URL!);
       if (
         !["localhost", "127.0.0.1"].includes(url.hostname) ||
-        url.pathname !== "/pdh_healthcheck_test"
+        url.pathname !== "/pdh_healthcheck_prod_restore_test" ||
+        process.env.PDH_ALLOW_RESTORE_TEST_CRUD !== "YES"
       )
-        throw Error("Isolated localhost test database required");
+        throw Error(
+          "Refusing database writes: explicit opt-in and isolated pdh_healthcheck_prod_restore_test required",
+        );
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("APP_URL", "http://localhost:3036");
       userId = (
