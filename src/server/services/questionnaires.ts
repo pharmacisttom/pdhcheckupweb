@@ -123,3 +123,53 @@ export async function approveQuestionnaire(id: string, actorId: string) {
     return { id, status: "published" };
   });
 }
+
+export async function updateDraftQuestionnaire(
+  input: z.infer<typeof questionnaireSchema> & { id: string; revision: number },
+  actorId: string,
+) {
+  const validated = questionnaireSchema.parse({
+    questions: input.questions,
+    rules: input.rules,
+  });
+  return db.$transaction(async (tx) => {
+    const updated = await tx.questionnaire.updateMany({
+      where: { id: input.id, revision: input.revision, status: "draft" },
+      data: {
+        questions: validated.questions,
+        rules: validated.rules,
+        revision: { increment: 1 },
+      },
+    });
+    if (updated.count !== 1)
+      throw new AppError(409, "แบบประเมินมีการเปลี่ยนแปลง หรือไม่ใช่ฉบับร่าง กรุณาโหลดใหม่");
+    await audit(tx, actorId, "questionnaire.updated", input.id);
+    return { id: input.id, revision: input.revision + 1, status: "draft" };
+  });
+}
+
+export async function archiveQuestionnaire(
+  input: { id: string; revision: number; reason: string },
+  actorId: string,
+) {
+  return db.$transaction(async (tx) => {
+    const current = await tx.questionnaire.findUnique({ where: { id: input.id } });
+    if (!current || current.status === "archived")
+      throw new AppError(409, "ไม่พบแบบประเมินที่สามารถเก็บเข้าคลังได้");
+    if (current.status === "published") {
+      const otherPublished = await tx.questionnaire.count({
+        where: { id: { not: input.id }, status: "published", approvedBy: { not: null } },
+      });
+      if (otherPublished === 0)
+        throw new AppError(409, "ไม่สามารถเก็บแบบประเมินที่เผยแพร่ฉบับสุดท้ายเข้าคลังได้");
+    }
+    const updated = await tx.questionnaire.updateMany({
+      where: { id: input.id, revision: input.revision, status: current.status },
+      data: { status: "archived", revision: { increment: 1 } },
+    });
+    if (updated.count !== 1)
+      throw new AppError(409, "แบบประเมินถูกแก้ไขโดยผู้อื่น กรุณาโหลดใหม่");
+    await audit(tx, actorId, "questionnaire.archived", input.id + ": " + input.reason);
+    return { id: input.id, status: "archived", revision: input.revision + 1 };
+  });
+}
