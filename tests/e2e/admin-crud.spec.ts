@@ -59,12 +59,15 @@ async function edit(page: Page, text: string) {
   await expect(page.getByRole("dialog")).toBeVisible();
   return page.getByRole("dialog");
 }
-async function save(page: Page) {
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "บันทึก", exact: true })
-    .click();
-  await expect(page.getByRole("dialog")).not.toBeVisible();
+async function save(page: Page, requiresDeactivation = false) {
+  const editor = page.getByRole("dialog").filter({ has: page.locator("form") });
+  await editor.getByRole("button", { name: "บันทึก", exact: true }).click();
+  if (requiresDeactivation) {
+    const confirmation = page.locator(".swal2-popup.swal2-show");
+    await expect(confirmation).toContainText("ยืนยันปิดใช้งานรายการนี้");
+    await confirmation.getByRole("button", { name: "ปิดใช้งาน" }).click();
+  }
+  await expect(editor).toBeHidden();
   await expect(page.locator(".swal2-toast")).toBeVisible();
 }
 test.beforeAll(async () => {
@@ -348,7 +351,7 @@ test("organization create edit disable and mobile modal", async ({
   }
   await dialog.getByLabel("สถานะองค์กร").selectOption("inactive");
   await dialog.getByLabel("เหตุผล / บันทึกดำเนินการ").fill("Synthetic close");
-  await save(page);
+  await save(page, true);
   expect(
     (
       await db.organization.findFirstOrThrow({
@@ -410,10 +413,12 @@ test("service metadata editor and slot lifecycle", async ({
   const slot = await db.slot.findFirstOrThrow({ where: { dayId: day } });
   await page.getByLabel("ค้นหาวัน (YYYY-MM-DD)", { exact: true }).fill(day);
   await page.getByLabel("ค้นหาวัน (YYYY-MM-DD)", { exact: true }).press("Enter");
+  await expect.poll(async () => db.slot.count({ where: { id: slot.id, dayId: day } })).toBe(1);
+  await expect(page.locator(".managed-records article").filter({ hasText: slot.id })).toHaveCount(1);
   d = await edit(page, slot.id);
   await d.getByLabel("ปิดช่วงเวลา", { exact: true }).check();
   await d.getByLabel("เหตุผล / บันทึกดำเนินการ").fill("Synthetic close slot");
-  await save(page);
+  await save(page, true);
   expect(
     (await db.slot.findUniqueOrThrow({ where: { id: slot.id } })).closed,
   ).toBe(true);
@@ -628,7 +633,7 @@ test("SweetAlert2 error is generic while the field-level API error remains visib
   const alert = page.locator(".swal2-popup");
   await expect(alert).toContainText("บันทึกข้อมูลไม่สำเร็จ");
   await expect(alert).not.toContainText("SYNTHETIC_PRIVATE_SERVER_ERROR");
-  await expect(page.getByRole("dialog").getByText("SYNTHETIC_PRIVATE_SERVER_ERROR")).toBeVisible();
+  await expect(page.locator(".managed-records > p.field-error")).toHaveText("SYNTHETIC_PRIVATE_SERVER_ERROR");
   await page.locator(".swal2-confirm").click();
 });
 
