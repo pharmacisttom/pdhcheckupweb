@@ -103,7 +103,7 @@ export async function createSession(
       userId,
       stage,
       expiresAt: new Date(
-        Date.now() + (stage === "full" ? (userId ? 8 : 2) * 3600000 : 600000),
+        Date.now() + (stage === "full" ? (userId ? 8 * 3600000 : 7 * 86400000) : 600000),
       ),
     },
   });
@@ -112,7 +112,7 @@ export async function createSession(
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: stage === "full" ? (userId ? 28800 : 7200) : 600,
+    maxAge: stage === "full" ? (userId ? 28800 : 7 * 86400) : 600,
   });
   return s;
 }
