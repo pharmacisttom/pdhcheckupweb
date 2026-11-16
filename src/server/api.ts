@@ -792,7 +792,9 @@ export async function api(req: Request, path: string[]) {
           ownerSessionId: s.id,
           id: { notIn: submitted.map((r) => r.registrationId) },
           booking: null,
-          expiresAt: { gt: new Date() },
+          // RC02: Registration is a durable draft. expiresAt is no longer
+          // an eligibility filter for viewing a session-owned saved record.
+          // Quote/Hold expiry continues to be enforced separately.
         },
         orderBy: { updatedAt: "desc" },
       });
@@ -1071,6 +1073,36 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
       take: 200,
       orderBy: { name: "asc" },
     });
+  }
+  if (path.join("/") === "registrations/pending" && req.method === "GET") {
+    await guard("bookings:read");
+    // Staff triage queue: pending registration is not a confirmed booking.
+    // Never decrypt clinical/personal details in this list response.
+    const pending = await db.registration.findMany({
+      where: {
+        booking: null,
+        id: { notIn: (await db.contactRequest.findMany({
+          select: { registrationId: true },
+        })).map((r) => r.registrationId) },
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        updatedAt: true,
+        expiresAt: true,
+        questionnaireVersion: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    return pending.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      expiresAt: r.expiresAt,
+      questionnaireVersion: r.questionnaireVersion,
+      status: "registered_not_booked",
+    }));
   }
   if (path.join("/") === "contact-requests" && req.method === "GET") {
     const s = await guard("bookings:read");
