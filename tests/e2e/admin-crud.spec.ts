@@ -313,7 +313,16 @@ test("organization create edit disable and mobile modal", async ({
   await dialog
     .getByLabel("ผู้ประสานงาน / ช่องทางติดต่อ", { exact: true })
     .fill("Synthetic contact");
+  const createdResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" &&
+    new URL(response.url()).pathname === "/api/v1/admin/organizations",
+    { timeout: 20000 },
+  );
   await save(page);
+  const creationResult = await createdResponse;
+  expect(creationResult.status(), await creationResult.text()).toBe(200);
+  const createdBody = await creationResult.json();
+  expect(createdBody.data?.id).toBeTruthy();
   // Verify the saved row persists through a full page reload before editing.
   await expect.poll(async () => db.organization.count({
     where: { name: { contains: marker } },
