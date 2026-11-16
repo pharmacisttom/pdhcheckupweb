@@ -1987,8 +1987,19 @@ footer {
   min-height: 44px;
 }
 .swal2-container {
+  /* Radix Dialog disables outside pointer events; SweetAlert confirmation
+     must remain interactive above the open editor dialog. */
+  z-index: 2147483000 !important;
+  pointer-events: auto !important;
   padding-top: max(12px, env(safe-area-inset-top));
   padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+.swal2-container:has(.swal2-toast) {
+  /* Toast must never block the underlying form while it is visible. */
+  pointer-events: none !important;
+}
+.swal2-container .swal2-toast {
+  pointer-events: auto !important;
 }
 .swal2-popup {
   width: min(32em, calc(100vw - 24px));

@@ -5,6 +5,9 @@ process.env.OTP_PROVIDER = "disabled";
 process.env.EMAIL_PROVIDER = "disabled";
 const config = {
   ...base,
+  // The managed server is bound to 3037; never inherit the generic
+  // playwright.config.ts baseURL (3036), which triggers the strict CSRF guard.
+  use: { ...base.use, baseURL: "http://localhost:3037" },
   testMatch: [
     "admin-crud.spec.ts",
     "mobile-app.spec.ts",

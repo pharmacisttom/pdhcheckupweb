@@ -11,10 +11,10 @@ test("public navigation has no horizontal overflow at target widths", async ({
   await fs.promises.mkdir("docs/qa/2026-11-16", { recursive: true });
   await page.setViewportSize({ width: 320, height: 740 });
   await page.goto("/");
-  const nav = page.getByRole("navigation", { name: "เมนูมือถือ", exact: true });
+  const nav = page.getByRole("navigation", { name: "เมนูหลัก", exact: true });
   await expect(nav).toBeVisible();
   await expect(
-    nav.getByRole("link", { name: "แพ็กเกจ", exact: true }),
+    nav.getByRole("link", { name: "หน้าหลัก", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   for (const width of [320, 360, 375, 390, 430, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
@@ -30,13 +30,13 @@ test("public navigation has no horizontal overflow at target widths", async ({
       });
   }
   await page.setViewportSize({ width: 390, height: 844 });
-  await nav.getByRole("link", { name: "นัดของฉัน" }).click();
+  await nav.getByRole("link", { name: "รายการของฉัน" }).click();
   await expect(page).toHaveURL(/bookings/);
-  await expect(nav.getByRole("link", { name: "นัดของฉัน" })).toHaveAttribute(
+  await expect(nav.getByRole("link", { name: "รายการของฉัน" })).toHaveAttribute(
     "aria-current",
     "page",
   );
-  await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "บันทึกข้อมูลแล้ว แต่ยังไม่ได้ยืนยันการจอง" })).toBeVisible();
 });
 
 test("admin drawer, card tables and layout remain usable on mobile and desktop", async ({

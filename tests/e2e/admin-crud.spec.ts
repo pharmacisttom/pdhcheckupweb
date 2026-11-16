@@ -59,13 +59,17 @@ async function edit(page: Page, text: string) {
   await expect(page.getByRole("dialog")).toBeVisible();
   return page.getByRole("dialog");
 }
-async function save(page: Page) {
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "บันทึก", exact: true })
-    .click();
-  await expect(page.getByRole("dialog")).not.toBeVisible();
-  await expect(page.locator(".swal2-toast")).toBeVisible();
+async function save(page: Page, requiresDeactivation = false) {
+  const editor = page.getByRole("dialog").filter({ has: page.locator("form") });
+  // CRUD gate checks durable state separately; a 1.8s toast is transient UI
+  // and must not be the sole success oracle for persistent mutations.
+  await editor.getByRole("button", { name: "บันทึก", exact: true }).click();
+  if (requiresDeactivation) {
+    const confirmation = page.locator(".swal2-popup.swal2-show");
+    await expect(confirmation).toContainText("ยืนยันปิดใช้งานรายการนี้");
+    await confirmation.getByRole("button", { name: "ปิดใช้งาน" }).click();
+  }
+  await expect(editor).toBeHidden();
 }
 test.beforeAll(async () => {
   const testUrl = new URL(process.env.DATABASE_URL!);
@@ -240,6 +244,61 @@ test.afterAll(async () => {
   if (dpo) await dpo.cleanup();
   await db.$disconnect();
 });
+test("saved registration is visible to staff without being miscounted as a booking after draft expiry", async ({
+  page,
+  context,
+}) => {
+  const pendingId = (await db.registration.create({
+    data: {
+      ownerSessionId: ownerId,
+      draftEncrypted: encrypt({
+        firstName: "Synthetic",
+        lastName: "Pending",
+        phone: "0812345678",
+      }),
+      expiresAt: new Date(Date.now() - 86400000),
+    },
+  })).id;
+  try {
+    // The owner can still reopen their own saved form after its draft TTL.
+    await context.addCookies([{
+      name: "pdh_session",
+      value: marker,
+      url: "http://localhost:3037",
+      httpOnly: true,
+      sameSite: "Lax",
+    }]);
+    const draftResponse = await page.request.get(
+      "http://localhost:3037/api/v1/registrations/draft",
+    );
+    expect(draftResponse.status()).toBe(200);
+    const draftBody = await draftResponse.json();
+    expect(draftBody.data.id).toBe(pendingId);
+    const savedResponse = await page.request.get(
+      "http://localhost:3037/api/v1/registrations/saved",
+    );
+    expect(savedResponse.status()).toBe(200);
+    const savedBody = await savedResponse.json();
+    expect(savedBody.data).toContainEqual(
+      expect.objectContaining({ id: pendingId }),
+    );
+
+    await auth(context, staff.id);
+    const response = await page.request.get(
+      "http://localhost:3037/api/v1/admin/registrations/pending",
+    );
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    const pending = body.data as { id: string; status: string }[];
+    expect(pending).toContainEqual(expect.objectContaining({
+      id: pendingId,
+      status: "registered_not_booked",
+    }));
+    expect(await db.booking.count({ where: { registrationId: pendingId } })).toBe(0);
+  } finally {
+    await db.registration.delete({ where: { id: pendingId } });
+  }
+});
 test("organization create edit disable and mobile modal", async ({
   page,
   context,
@@ -254,7 +313,29 @@ test("organization create edit disable and mobile modal", async ({
   await dialog
     .getByLabel("ผู้ประสานงาน / ช่องทางติดต่อ", { exact: true })
     .fill("Synthetic contact");
+  const createdResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" &&
+    new URL(response.url()).pathname === "/api/v1/admin/organizations",
+    { timeout: 20000 },
+  );
   await save(page);
+  const creationResult = await createdResponse;
+  const originSent = (await creationResult.request().allHeaders()).origin ?? "<absent>";
+  const requestHost = new URL(creationResult.url()).origin;
+  expect(
+    creationResult.status(),
+    JSON.stringify({ status: creationResult.status(), originSent, requestHost,
+      expectedBrowserOrigin: "http://localhost:3037", body: await creationResult.text() }),
+  ).toBe(200);
+  const createdBody = await creationResult.json();
+  expect(createdBody.data?.id).toBeTruthy();
+  // Verify the saved row persists through a full page reload before editing.
+  await expect.poll(async () => db.organization.count({
+    where: { name: { contains: marker } },
+  })).toBe(1);
+  await page.reload();
+  await page.getByLabel("ค้นหาในฐานข้อมูล", { exact: true }).fill(marker);
+  await page.getByLabel("ค้นหาในฐานข้อมูล", { exact: true }).press("Enter");
   dialog = await edit(page, marker);
   await dialog
     .getByLabel("ชื่อองค์กร", { exact: true })
@@ -285,15 +366,20 @@ test("organization create edit disable and mobile modal", async ({
       });
   }
   await dialog.getByLabel("สถานะองค์กร").selectOption("inactive");
+  await expect(dialog.getByLabel("สถานะองค์กร")).toHaveValue("inactive");
   await dialog.getByLabel("เหตุผล / บันทึกดำเนินการ").fill("Synthetic close");
-  await save(page);
-  expect(
-    (
-      await db.organization.findFirstOrThrow({
-        where: { name: { contains: marker } },
-      })
-    ).status,
-  ).toBe("inactive");
+  const deactivateResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" &&
+    new URL(response.url()).pathname.includes("/api/v1/admin/manage/organizations/"),
+    { timeout: 20000 },
+  );
+  await save(page, true);
+  const deactivated = await deactivateResponse;
+  expect(deactivated.status(), await deactivated.text()).toBe(200);
+  expect(deactivated.request().postDataJSON()).toMatchObject({ status: "inactive" });
+  await expect.poll(async () => (
+    await db.organization.findFirstOrThrow({ where: { name: { contains: marker } } })
+  ).status).toBe("inactive");
 });
 test("service metadata editor and slot lifecycle", async ({
   page,
@@ -315,10 +401,14 @@ test("service metadata editor and slot lifecycle", async ({
   await d.getByLabel("หมวดหมู่", { exact: true }).fill("test");
   await d.getByLabel("หน่วย", { exact: true }).fill("ครั้ง");
   await save(page);
+  await expect.poll(async () => db.service.count({
+    where: { code: "NEW-" + marker },
+  })).toBe(1);
+  await page.reload();
   await page
     .getByLabel("ค้นหาในฐานข้อมูล", { exact: true })
     .fill("NEW-" + marker);
-  await page.getByRole("button", { name: "ค้นหา", exact: true }).click();
+  await page.getByLabel("ค้นหาในฐานข้อมูล", { exact: true }).press("Enter");
   d = await edit(page, "NEW-" + marker);
   await d
     .getByLabel("ชื่อบริการภาษาอังกฤษ", { exact: true })
@@ -343,14 +433,40 @@ test("service metadata editor and slot lifecycle", async ({
   await save(page);
   const slot = await db.slot.findFirstOrThrow({ where: { dayId: day } });
   await page.getByLabel("ค้นหาวัน (YYYY-MM-DD)", { exact: true }).fill(day);
-  await page.getByRole("button", { name: "ค้นหา", exact: true }).click();
-  d = await edit(page, slot.id);
+  await page.getByLabel("ค้นหาวัน (YYYY-MM-DD)", { exact: true }).press("Enter");
+  await expect.poll(async () => db.slot.count({ where: { id: slot.id, dayId: day } })).toBe(1);
+  // Verify the API result as well as the rendered card. If these differ,
+  // the browser failure is a rendering/state bug rather than DB persistence.
+  await expect.poll(async () => {
+    const response = await page.request.get(
+      "/api/v1/admin/manage/slots?page=1&q=" + encodeURIComponent(day),
+    );
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    return (body.data?.rows ?? []).map((row: { id: string }) => row.id);
+  }).toContain(slot.id);
+  // Slot cards present a localized appointment time, not an internal UUID.
+  // The API check above already verified the queried row is the expected ID.
+  const slotCards = page.locator(".managed-records article");
+  await expect(slotCards).toHaveCount(1);
+  await slotCards.getByRole("button", { name: /ดูรายละเอียด/ }).click();
+  d = page.getByRole("dialog").filter({ has: page.locator("form") });
+  await expect(d).toBeVisible();
   await d.getByLabel("ปิดช่วงเวลา", { exact: true }).check();
+  await expect(d.getByLabel("ปิดช่วงเวลา", { exact: true })).toBeChecked();
   await d.getByLabel("เหตุผล / บันทึกดำเนินการ").fill("Synthetic close slot");
-  await save(page);
-  expect(
-    (await db.slot.findUniqueOrThrow({ where: { id: slot.id } })).closed,
-  ).toBe(true);
+  const closeSlotResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" &&
+    new URL(response.url()).pathname === "/api/v1/admin/manage/slots/" + slot.id,
+    { timeout: 20000 },
+  );
+  await save(page, true);
+  const closedSlot = await closeSlotResponse;
+  expect(closedSlot.status(), await closedSlot.text()).toBe(200);
+  expect(closedSlot.request().postDataJSON()).toMatchObject({ closed: true });
+  await expect.poll(async () => (
+    await db.slot.findUniqueOrThrow({ where: { id: slot.id } })
+  ).closed).toBe(true);
 });
 test("package clone prefill and clinician read approval permission", async ({
   page,
@@ -374,7 +490,7 @@ test("package clone prefill and clinician read approval permission", async ({
   await expect(page.getByText("เลือกรายการตรวจแล้ว 1 รายการ")).toBeVisible();
   await page.getByRole("button", { name: /บันทึก.*ร่าง/ }).click();
   await expect(
-    page.getByText(
+    page.locator("#main").getByText(
       "สร้างเวอร์ชันฉบับร่างแล้ว ต้องได้รับการอนุมัติก่อนแสดงในเว็บไซต์",
     ),
   ).toBeVisible();
@@ -493,7 +609,7 @@ test("questionnaire draft edit and archive UI", async ({ page, context }) => {
     .getByRole("button", { name: "บันทึกฉบับร่าง", exact: true })
     .click();
   await expect(
-    page.getByText("บันทึกข้อมูลแล้ว", { exact: true }),
+    page.getByRole("status").filter({ hasText: "บันทึกข้อมูลแล้ว" }),
   ).toBeVisible();
   const q = await db.questionnaire.findFirstOrThrow({
     orderBy: { version: "desc" },
@@ -562,7 +678,7 @@ test("SweetAlert2 error is generic while the field-level API error remains visib
   const alert = page.locator(".swal2-popup");
   await expect(alert).toContainText("บันทึกข้อมูลไม่สำเร็จ");
   await expect(alert).not.toContainText("SYNTHETIC_PRIVATE_SERVER_ERROR");
-  await expect(page.getByText("SYNTHETIC_PRIVATE_SERVER_ERROR")).toBeVisible();
+  await expect(page.locator(".managed-records > p.field-error")).toHaveText("SYNTHETIC_PRIVATE_SERVER_ERROR");
   await page.locator(".swal2-confirm").click();
 });
 
@@ -658,7 +774,7 @@ test("chat department create rename and deactivate UI", async ({
     name: "Synthetic revised department",
     active: false,
   });
-  await expect(page.getByRole("status")).toHaveText("บันทึกเรียบร้อย");
+  await expect(page.getByRole("status")).toHaveText("บันทึกข้อมูลแล้ว");
   await expect(editForm.getByLabel("ชื่อหน่วยงาน", { exact: true })).toHaveValue(
     "Synthetic revised department",
   );

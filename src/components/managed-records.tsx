@@ -149,7 +149,7 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
   async function edit(row: Row) {
     setBusy(true);
     setError("");
-    showLoading("กำลังบันทึกข้อมูล");
+    // Keep Radix editor loading non-modal to avoid a competing SweetAlert overlay.
     try {
       const detail = [
         "organizations",
@@ -272,7 +272,8 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
         setBusy(false);
         return;
       }
-      showLoading("กำลังบันทึกข้อมูล");
+      // The editor's disabled/busy state is the progress indicator. Never
+      // stack a blocking loading dialog above an active Radix form.
       if (creating && kind === "organizations")
         await request("admin/organizations", {
           name: text("name"),

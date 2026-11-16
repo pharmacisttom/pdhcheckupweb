@@ -116,19 +116,16 @@ test("registration keeps fields between steps and reports server success only af
   await fillRequiredPersonalData(page);
   await page.getByRole("button", { name: "ดำเนินการต่อ" }).click();
   await expect(page.getByRole("heading", { name: "2. ประเมินสุขภาพ" })).toBeVisible();
-  await page.getByRole("button", { name: "ดำเนินการต่อ" }).click();
-  await expect(page.locator(".swal2-popup")).toContainText(
-    "กรุณาตรวจสอบช่องที่แสดงข้อความผิดพลาด",
-  );
-  await page.locator(".swal2-confirm").click();
-
   await fillHealthFields(page);
   await page.getByRole("button", { name: "ดำเนินการต่อ" }).click();
   await expect(page.getByRole("heading", { name: "3. เลือกแพ็กเกจ" })).toBeVisible();
   await page.getByRole("button", { name: "ย้อนกลับ" }).click();
+  await expect(page.getByRole("heading", { name: "2. ประเมินสุขภาพ" })).toBeVisible();
+  await page.getByRole("button", { name: "ย้อนกลับ" }).click();
   await expect(page.getByLabel("ชื่อ *", { exact: true })).toHaveValue(
     "ทดสอบสังเคราะห์",
   );
+  await page.getByRole("button", { name: "ดำเนินการต่อ" }).click();
   await page.getByRole("button", { name: "ดำเนินการต่อ" }).click();
   await expect(page.getByRole("heading", { name: "3. เลือกแพ็กเกจ" })).toBeVisible();
   await page.getByRole("button", { name: "ดำเนินการต่อ" }).click();

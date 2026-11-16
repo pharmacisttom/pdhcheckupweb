@@ -2,6 +2,8 @@
 
 import Swal, { type SweetAlertIcon } from "sweetalert2";
 
+let loadingGeneration = 0;
+
 const defaults = {
   confirmButtonText: "ตกลง",
   cancelButtonText: "ยกเลิก",
@@ -11,6 +13,7 @@ const defaults = {
 };
 
 function show(icon: SweetAlertIcon, title: string, text: string) {
+  closeLoading();
   return Swal.fire({
     ...defaults,
     icon,
@@ -23,8 +26,12 @@ function show(icon: SweetAlertIcon, title: string, text: string) {
 }
 
 export async function showSuccess(message: string, title = "สำเร็จ") {
+  closeLoading();
   await Swal.fire({
-    ...defaults,
+    confirmButtonText: "ตกลง",
+    cancelButtonText: "ยกเลิก",
+    buttonsStyling: true,
+    customClass: { popup: "pdh-alert-popup" },
     icon: "success",
     title,
     text: message,
@@ -56,6 +63,7 @@ export async function showConfirm(
   title = "ยืนยันการดำเนินการ",
   confirmText = "ยืนยัน",
 ) {
+  closeLoading();
   const result = await Swal.fire({
     ...defaults,
     icon: "question",
@@ -94,16 +102,30 @@ export async function showTextPrompt(
 }
 
 export function showLoading(title = "กำลังบันทึกข้อมูล") {
+  closeLoading();
+  const currentGeneration = ++loadingGeneration;
   void Swal.fire({
     ...defaults,
+    customClass: { popup: "pdh-alert-popup pdh-loading-popup" },
     title,
     allowOutsideClick: false,
     allowEscapeKey: false,
     showConfirmButton: false,
-    didOpen: () => Swal.showLoading(),
+    didOpen: (element) => {
+      // A fast API response can settle before SweetAlert's didOpen fires.
+      // Never leave an orphan loading overlay blocking later interactions.
+      if (currentGeneration !== loadingGeneration) {
+        if (Swal.getPopup() === element) Swal.close();
+        return;
+      }
+      Swal.showLoading();
+    },
   });
 }
 
 export function closeLoading() {
-  if (Swal.isLoading()) Swal.close();
+  loadingGeneration++;
+  // Never dismiss an unrelated toast/confirmation. didOpen also honors the
+  // generation when a cancelled loading popup has not finished mounting.
+  if (Swal.getPopup()?.classList.contains("pdh-loading-popup")) Swal.close();
 }

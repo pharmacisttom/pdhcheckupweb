@@ -20,6 +20,7 @@ import {
 import { dictionaries, locales, translate } from "@/lib/i18n";
 import { deliverOtp, otpTestMode } from "./services/otp-delivery";
 import { recoverInterest } from "./services/recover-interest";
+import { recoverRegistrationDraft } from "./services/recover-registration";
 import {
   reviewInput,
   updateReview,
@@ -160,7 +161,7 @@ export async function api(req: Request, path: string[]) {
       );
     if (
       !otpRequired() &&
-      ["otp/request", "otp/verify", "contact-requests/recover"].includes(
+      ["otp/request", "otp/verify", "contact-requests/recover", "registrations/recover"].includes(
         resource,
       )
     )
@@ -781,6 +782,19 @@ export async function api(req: Request, path: string[]) {
         await audit(tx, s.id, "registration.saved", r.id);
         return { id: r.id, decisions };
       });
+    } else if (method === "POST" && resource === "registrations/recover") {
+      const s = (await session())!;
+      // Rate limit both client session and submitted reference to reduce guessing.
+      await rateLimit("registration-recover:" + s.id, 5, 900);
+      const input = await body(
+        req,
+        z.object({
+          registrationId: z.string().min(10).max(100),
+          birthdate: z.iso.date(),
+        }),
+      );
+      await rateLimit("registration-recover-ref:" + privateHash(input.registrationId), 8, 3600);
+      data = await recoverRegistrationDraft(s.id, input.registrationId, input.birthdate);
     } else if (method === "GET" && resource === "registrations/draft") {
       const s = (await session())!;
       const submitted = await db.contactRequest.findMany({
@@ -792,7 +806,9 @@ export async function api(req: Request, path: string[]) {
           ownerSessionId: s.id,
           id: { notIn: submitted.map((r) => r.registrationId) },
           booking: null,
-          expiresAt: { gt: new Date() },
+          // RC02: Registration is a durable draft. expiresAt is no longer
+          // an eligibility filter for viewing a session-owned saved record.
+          // Quote/Hold expiry continues to be enforced separately.
         },
         orderBy: { updatedAt: "desc" },
       });
@@ -806,6 +822,26 @@ export async function api(req: Request, path: string[]) {
             questionnaireVersion: r.questionnaireVersion,
           }
         : null;
+    } else if (method === "GET" && resource === "registrations/saved") {
+      const s = (await session())!;
+      const submitted = await db.contactRequest.findMany({
+        where: { sessionId: s.id },
+        select: { registrationId: true },
+      });
+      data = await db.registration.findMany({
+        where: {
+          ownerSessionId: s.id,
+          booking: null,
+          id: { notIn: submitted.map((r) => r.registrationId) },
+        },
+        select: {
+          id: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 20,
+      });
     } else if (method === "POST" && resource === "quotes") {
       const s = (await session())!;
       assertContactSession(s);
@@ -1071,6 +1107,67 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
       take: 200,
       orderBy: { name: "asc" },
     });
+  }
+  if (path.join("/") === "registrations/pending/detail" && req.method === "GET") {
+    const staff = await guard("bookings:read");
+    const registrationId = z.string().min(10).max(100).parse(
+      new URL(req.url).searchParams.get("id"),
+    );
+    const registration = await db.registration.findUnique({
+      where: { id: registrationId },
+      include: { booking: { select: { id: true } } },
+    });
+    const submitted = await db.contactRequest.findUnique({
+      where: { registrationId },
+      select: { id: true },
+    });
+    if (!registration || registration.booking || submitted)
+      throw new AppError(404, "ไม่พบรายการที่รอดำเนินการ");
+    await db.$transaction((tx) =>
+      audit(tx, staff.user!.id, "registration.pending_viewed", registrationId),
+    );
+    const person = decrypt<{
+      firstName?: string;
+      lastName?: string;
+      phone?: string;
+      email?: string;
+    }>(registration.draftEncrypted);
+    return {
+      id: registration.id,
+      createdAt: registration.createdAt,
+      status: "registered_not_booked",
+      contact: {
+        name: [person.firstName, person.lastName].filter(Boolean).join(" "),
+        phone: person.phone ?? "",
+        email: person.email ?? "",
+      },
+    };
+  }
+  if (path.join("/") === "registrations/pending" && req.method === "GET") {
+    await guard("bookings:read");
+    // Staff triage queue: pending registration is not a confirmed booking.
+    // Never decrypt clinical/personal details in this list response.
+    const pending = await db.$queryRaw<Array<{
+      id: string;
+      createdAt: Date;
+      updatedAt: Date;
+      expiresAt: Date;
+      questionnaireVersion: number;
+    }>>`SELECT r.id, r.createdAt, r.updatedAt, r.expiresAt,
+      r.questionnaireVersion
+      FROM Registration r
+      LEFT JOIN Booking b ON b.registrationId = r.id
+      LEFT JOIN ContactRequest c ON c.registrationId = r.id
+      WHERE b.id IS NULL AND c.id IS NULL
+      ORDER BY r.createdAt DESC LIMIT 100`;
+    return pending.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      expiresAt: r.expiresAt,
+      questionnaireVersion: r.questionnaireVersion,
+      status: "registered_not_booked",
+    }));
   }
   if (path.join("/") === "contact-requests" && req.method === "GET") {
     const s = await guard("bookings:read");
