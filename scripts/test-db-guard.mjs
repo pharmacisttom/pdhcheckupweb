@@ -71,7 +71,7 @@ export async function verifyRc02TestDatabase(prisma, rawUrl) {
   let phase = "identity";
   try {
     const identityRows = await prisma.$queryRaw`
-      SELECT CURRENT_USER() AS current_user, DATABASE() AS database_name
+      SELECT CURRENT_USER() AS \`current_user\`, DATABASE() AS database_name
     `;
     assertTestIdentity(identityRows[0], url.hostname.toLowerCase());
     phase = "grants";
