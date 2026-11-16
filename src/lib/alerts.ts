@@ -24,8 +24,10 @@ function show(icon: SweetAlertIcon, title: string, text: string) {
 
 export async function showSuccess(message: string, title = "สำเร็จ") {
   await Swal.fire({
-    ...defaults,
-    heightAuto: undefined,
+    confirmButtonText: "ตกลง",
+    cancelButtonText: "ยกเลิก",
+    buttonsStyling: true,
+    customClass: { popup: "pdh-alert-popup" },
     icon: "success",
     title,
     text: message,
