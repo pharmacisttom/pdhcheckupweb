@@ -61,6 +61,9 @@ async function edit(page: Page, text: string) {
 }
 async function save(page: Page, requiresDeactivation = false) {
   const editor = page.getByRole("dialog").filter({ has: page.locator("form") });
+  // Observe the transient success toast before starting the mutation.
+  // It can expire while the editor closes, so waiting afterward is racy.
+  const successToast = page.locator(".swal2-toast").waitFor({ state: "visible", timeout: 15000 });
   await editor.getByRole("button", { name: "บันทึก", exact: true }).click();
   if (requiresDeactivation) {
     const confirmation = page.locator(".swal2-popup.swal2-show");
@@ -68,7 +71,7 @@ async function save(page: Page, requiresDeactivation = false) {
     await confirmation.getByRole("button", { name: "ปิดใช้งาน" }).click();
   }
   await expect(editor).toBeHidden();
-  await expect(page.locator(".swal2-toast")).toBeVisible();
+  await successToast;
 }
 test.beforeAll(async () => {
   const testUrl = new URL(process.env.DATABASE_URL!);
