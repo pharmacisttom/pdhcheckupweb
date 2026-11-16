@@ -5,6 +5,14 @@ import { RecoverInterest } from "./recover-interest";
 import { contactStatuses } from "./booking-control";
 import QRCode from "qrcode";
 import { request, money, dateTime } from "@/lib/client";
+import {
+  closeLoading,
+  showConfirm,
+  showError,
+  showLoading,
+  showSuccess,
+  showTextPrompt,
+} from "@/lib/alerts";
 import { EmptyState, ErrorState, Loading, PageHeader, StatusBadge } from "./ui";
 type Booking = {
   id: string;
@@ -58,6 +66,7 @@ export function Bookings() {
   async function reschedule() {
     setBusy(true);
     setError("");
+    showLoading(t("กำลังบันทึกการเลื่อนนัด"));
     try {
       await request("bookings/" + editing + "/reschedule", {
         slotId: targetSlot,
@@ -65,9 +74,12 @@ export function Bookings() {
       });
       setEditing("");
       await load();
+      void showSuccess(t("บันทึกการเลื่อนนัดแล้ว"));
     } catch (e) {
       setError((e as Error).message);
+      void showError(t("ไม่สามารถเลื่อนนัดได้ โปรดตรวจสอบข้อความในหน้า"));
     } finally {
+      closeLoading();
       setBusy(false);
     }
   }
@@ -99,13 +111,32 @@ export function Bookings() {
     load();
   }, []);
   async function cancel(b: Booking) {
-    const reason = window.prompt(t("ระบุเหตุผลการยกเลิกนัดหมาย"));
+    const reason = await showTextPrompt(
+      t("ยกเลิกนัดหมาย"),
+      t("ระบุเหตุผลการยกเลิกนัดหมาย"),
+      t("ยกเลิกนัด"),
+    );
     if (!reason) return;
+    if (
+      !(await showConfirm(
+        t("ยืนยันยกเลิกนัดหมาย รายการนี้จะถูกบันทึกในประวัติ"),
+        t("ยืนยันการยกเลิก"),
+        t("ยืนยันยกเลิก"),
+      ))
+    )
+      return;
+    setBusy(true);
+    showLoading(t("กำลังยกเลิกนัดหมาย"));
     try {
       await request("bookings/" + b.id + "/cancel", { reason });
       await load();
+      void showSuccess(t("ยกเลิกนัดหมายแล้ว"));
     } catch (e) {
       setError((e as Error).message);
+      void showError(t("ไม่สามารถยกเลิกนัดได้ โปรดตรวจสอบข้อความในหน้า"));
+    } finally {
+      closeLoading();
+      setBusy(false);
     }
   }
   return (

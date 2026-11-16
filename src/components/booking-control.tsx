@@ -2,6 +2,12 @@
 import { useEffect, useState } from "react";
 import { canReviewTransition } from "@/lib/intake";
 import { request, dateTime } from "@/lib/client";
+import {
+  closeLoading,
+  showError,
+  showLoading,
+  showSuccess,
+} from "@/lib/alerts";
 import { EmptyState, ErrorState, Loading, PageHeader } from "./ui";
 
 export function BookingControl() {
@@ -38,12 +44,16 @@ export function BookingControl() {
               setBusy(true);
               setError("");
               setNotice("");
+              showLoading("กำลังบันทึกรูปแบบรับนัด");
               try {
                 setPolicy(await request("admin/booking-policy", policy));
                 setNotice("บันทึกการรับนัดแล้ว");
+                void showSuccess("บันทึกรูปแบบรับนัดแล้ว");
               } catch (e) {
                 setError((e as Error).message);
+                void showError("บันทึกรูปแบบรับนัดไม่สำเร็จ โปรดตรวจสอบข้อความในหน้า");
               } finally {
+                closeLoading();
                 setBusy(false);
               }
             }}

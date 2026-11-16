@@ -65,10 +65,17 @@ async function save(page: Page) {
     .getByRole("button", { name: "บันทึก", exact: true })
     .click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(page.locator(".swal2-toast")).toBeVisible();
 }
 test.beforeAll(async () => {
-  if (!new URL(process.env.DATABASE_URL!).pathname.endsWith("_test"))
-    throw Error("isolated test DB required");
+  const testUrl = new URL(process.env.DATABASE_URL!);
+  if (
+    !["localhost", "127.0.0.1"].includes(testUrl.hostname) ||
+    decodeURIComponent(testUrl.username) !== "pdh_test" ||
+    testUrl.pathname !== "/pdh_healthcheck_rc01_test" ||
+    process.env.PDH_TEST_ALLOW_SYNTHETIC_FIXTURES !== "true"
+  )
+    throw Error("Dedicated RC01 test database required");
   staff = await syntheticStaff("superadmin");
   clinician = await syntheticStaff("clinician");
   dpo = await syntheticStaff("dpo");
@@ -261,13 +268,22 @@ test("organization create edit disable and mobile modal", async ({
   await expect(
     dialog.getByLabel("ผู้ประสานงาน / ช่องทางติดต่อ", { exact: true }),
   ).toHaveValue("Synthetic contact");
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  ).toBe(true);
-  await page.screenshot({ path: "docs/qa/2026-10-30/admin-crud-org-390.png" });
+  await import("node:fs/promises").then((fs) =>
+    fs.mkdir("docs/qa/2026-11-16", { recursive: true }),
+  );
+  for (const width of [320, 360, 375, 390, 430, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: width < 800 ? 844 : 900 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    if ([320, 390, 1440].includes(width))
+      await page.screenshot({
+        path: `docs/qa/2026-11-16/rc02-admin-org-${width}.png`,
+        fullPage: true,
+      });
+  }
   await dialog.getByLabel("สถานะองค์กร").selectOption("inactive");
   await dialog.getByLabel("เหตุผล / บันทึกดำเนินการ").fill("Synthetic close");
   await save(page);
@@ -506,10 +522,15 @@ test("questionnaire draft edit and archive UI", async ({ page, context }) => {
           .revision,
     )
     .toBe(1);
-  page.once("dialog", (d) => d.accept("Synthetic archive"));
   await article
     .getByRole("button", { name: "เก็บเข้าคลัง", exact: true })
     .click();
+  await page
+    .getByRole("textbox", { name: "ระบุเหตุผลที่เก็บแบบประเมินเข้าคลัง" })
+    .fill("Synthetic archive");
+  await page.getByRole("button", { name: "เก็บเข้าคลัง", exact: true }).last().click();
+  await expect(page.locator(".swal2-popup")).toContainText("ยืนยันเก็บแบบประเมินเข้าคลัง");
+  await page.getByRole("button", { name: "เก็บเข้าคลัง", exact: true }).last().click();
   await expect
     .poll(
       async () =>
@@ -517,6 +538,32 @@ test("questionnaire draft edit and archive UI", async ({ page, context }) => {
           .status,
     )
     .toBe("archived");
+});
+
+test("SweetAlert2 error is generic while the field-level API error remains visible", async ({
+  page,
+  context,
+}) => {
+  await auth(context, staff.id);
+  await page.route("**/api/v1/admin/manage/services/**", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: { message: "SYNTHETIC_PRIVATE_SERVER_ERROR" },
+      }),
+    });
+  });
+  await page.goto("/admin/lab-pricing");
+  const editor = await edit(page, "B-" + marker);
+  await editor.getByLabel("เหตุผล / บันทึกดำเนินการ").fill("Synthetic conflict test");
+  await editor.getByRole("button", { name: "บันทึก", exact: true }).click();
+  const alert = page.locator(".swal2-popup");
+  await expect(alert).toContainText("บันทึกข้อมูลไม่สำเร็จ");
+  await expect(alert).not.toContainText("SYNTHETIC_PRIVATE_SERVER_ERROR");
+  await expect(page.getByText("SYNTHETIC_PRIVATE_SERVER_ERROR")).toBeVisible();
+  await page.locator(".swal2-confirm").click();
 });
 
 test("staff reschedule and waitlist link actual booking", async ({

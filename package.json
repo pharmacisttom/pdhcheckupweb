@@ -16,6 +16,7 @@
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "format": "prettier --write src prisma tests docs",
     "test:db": "node scripts/test-db.mjs",
+    "test:harness": "node --test scripts/test-db-guard.test.mjs",
     "api:contract": "tsx scripts/generate-contract.ts",
     "test:unit": "vitest run tests/unit",
     "test:interest:e2e": "playwright test --config playwright.interest.config.ts",
@@ -28,6 +29,7 @@
     "security-events:prune": "tsx --env-file=.env scripts/prune-security-events.ts",
     "chat:seed": "tsx --env-file=.env scripts/seed-health-chat.ts",
     "test:admin-crud:e2e": "node scripts/test-admin-crud-e2e.mjs",
+    "test:mobile:e2e": "node scripts/test-admin-crud-e2e.mjs tests/e2e/mobile-app.spec.ts tests/e2e/registration-mobile.spec.ts",
     "seed:uat:dry": "tsx scripts/seed-uat-staging.ts --dry-run",
     "seed:uat:apply": "tsx scripts/seed-uat-staging.ts --apply",
     "promote": "tsx scripts/promote-config-data.ts",
@@ -62,6 +64,7 @@
     "react-dom": "^19.3.1",
     "react-hook-form": "^7.90.0",
     "recharts": "^3.10.1",
+    "sweetalert2": "^11.26.25",
     "tailwind-merge": "^3.7.0",
     "yauzl": "^3.4.0",
     "zod": "^4.6.7"

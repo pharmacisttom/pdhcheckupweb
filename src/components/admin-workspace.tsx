@@ -6,6 +6,14 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Plus, Upload } from "lucide-react";
 import { request, money, dateTime, type PublicService } from "@/lib/client";
+import {
+  closeLoading,
+  showConfirm,
+  showError,
+  showLoading,
+  showSuccess,
+  showTextPrompt,
+} from "@/lib/alerts";
 import { EmptyState, ErrorState, Loading, PageHeader, StatusBadge } from "./ui";
 type Row = Record<string, unknown>;
 const titles: Record<string, [string, string]> = {
@@ -111,13 +119,17 @@ export function AdminWorkspace({ section }: { section: string }) {
     setError("");
     setNotice("");
     setBusy(true);
+    showLoading("กำลังบันทึกข้อมูล");
     try {
       await fn();
       setNotice(success);
       await load();
+      void showSuccess(success);
     } catch (e) {
       setError((e as Error).message);
+      void showError("บันทึกข้อมูลไม่สำเร็จ โปรดตรวจสอบข้อความในหน้า");
     } finally {
+      closeLoading();
       setBusy(false);
     }
   }
@@ -707,16 +719,15 @@ export function AdminWorkspace({ section }: { section: string }) {
                     capabilities["imports:approve"]) && (
                     <button
                       className="button secondary"
-                      onClick={() => {
-                        const reason = window.prompt(
-                          "เหตุผลที่ยกเลิกชุดนำเข้า",
+                      onClick={async () => {
+                        const reason = await showTextPrompt(
+                          "ยกเลิกชุดนำเข้า",
+                          "ระบุเหตุผลที่ยกเลิกชุดนำเข้า",
+                          "ยกเลิกชุดนำเข้า",
                         );
-                        if (reason?.trim())
-                          void mutate(() =>
-                            request("admin/imports/cancel", {
-                              id: r.id,
-                              reason,
-                            }),
+                        if (reason)
+                          await mutate(() =>
+                            request("admin/imports/cancel", { id: r.id, reason }),
                           );
                       }}
                     >
@@ -728,13 +739,14 @@ export function AdminWorkspace({ section }: { section: string }) {
                     className="button small"
                     style={{ marginTop: 20 }}
                     disabled={busy}
-                    onClick={() => {
+                    onClick={async () => {
                       if (
-                        window.confirm(
-                          "ยืนยันอนุมัติและเผยแพร่ราคา? ต้องตรวจสอบรหัส ชื่อ และวันที่มีผลแล้ว",
+                        await showConfirm(
+                          "ตรวจสอบรหัส ชื่อ และวันที่มีผลของราคาแล้วหรือไม่",
+                          "อนุมัติและเผยแพร่ราคา",
                         )
                       )
-                        mutate(
+                        await mutate(
                           () => request("admin/imports/approve", { id: r.id }),
                           "อนุมัติเวอร์ชันราคาแล้ว",
                         );
@@ -838,13 +850,25 @@ export function AdminWorkspace({ section }: { section: string }) {
                                 className="button secondary small"
                                 key={status}
                                 disabled={busy}
-                                onClick={() => {
+                                onClick={async () => {
                                   const reason =
                                     status === "cancelled"
-                                      ? window.prompt("เหตุผลการยกเลิก")
+                                      ? await showTextPrompt(
+                                          "ยกเลิกนัดหมาย",
+                                          "ระบุเหตุผลการยกเลิก",
+                                        )
                                       : undefined;
-                                  if (status === "cancelled" && !reason) return;
-                                  mutate(() =>
+                                  if (
+                                    status === "cancelled" &&
+                                    (!reason ||
+                                      !(await showConfirm(
+                                        "ยืนยันยกเลิกนัดหมาย รายการนี้จะถูกบันทึกในประวัติ",
+                                        "ยืนยันยกเลิกนัด",
+                                        "ยกเลิกนัด",
+                                      )))
+                                  )
+                                    return;
+                                  await mutate(() =>
                                     request("admin/bookings/status", {
                                       id: r.id,
                                       status,
@@ -901,13 +925,14 @@ export function AdminWorkspace({ section }: { section: string }) {
                               <button
                                 className="button secondary small"
                                 disabled={busy}
-                                onClick={() => {
+                                onClick={async () => {
                                   if (
-                                    window.confirm(
-                                      "ยืนยันการอนุมัติเงื่อนไข ราคา และรายการตรวจสำหรับเผยแพร่?",
+                                    await showConfirm(
+                                      "ยืนยันว่าได้ตรวจเงื่อนไข ราคา และรายการตรวจก่อนเผยแพร่แล้ว",
+                                      "อนุมัติเผยแพร่แพ็กเกจ",
                                     )
                                   )
-                                    mutate(() =>
+                                    await mutate(() =>
                                       request("admin/packages/status", {
                                         id: r.id,
                                         status: "published",
@@ -923,14 +948,22 @@ export function AdminWorkspace({ section }: { section: string }) {
                               <button
                                 className="button ghost small"
                                 disabled={busy}
-                                onClick={() =>
-                                  mutate(() =>
+                                onClick={async () => {
+                                  if (
+                                    !(await showConfirm(
+                                      "เก็บแพ็กเกจนี้เข้าคลังและหยุดแสดงเป็นรายการที่เปิดใช้งานหรือไม่",
+                                      "เก็บแพ็กเกจเข้าคลัง",
+                                      "เก็บเข้าคลัง",
+                                    ))
+                                  )
+                                    return;
+                                  await mutate(() =>
                                     request("admin/packages/status", {
                                       id: r.id,
                                       status: "archived",
                                     }),
-                                  )
-                                }
+                                  );
+                                }}
                               >
                                 เก็บถาวร
                               </button>

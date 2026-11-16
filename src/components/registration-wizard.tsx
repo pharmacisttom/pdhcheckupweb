@@ -16,6 +16,13 @@ import type { Question } from "@/lib/domain";
 import { AppointmentCalendar } from "./calendar";
 import { PRIVACY_VERSION } from "@/lib/intake";
 import {
+  closeLoading,
+  showError,
+  showLoading,
+  showSuccess,
+  showWarning,
+} from "@/lib/alerts";
+import {
   additionalHistoryCodes,
   intakeReuseValue,
   type IntakeReusePlan,
@@ -124,6 +131,7 @@ export function RegistrationWizard() {
   const [acknowledged, setAcknowledged] = useState(false);
   const [search, setSearch] = useState("");
   const idempotency = useRef("");
+  const busyRef = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const {
     register,
@@ -135,6 +143,7 @@ export function RegistrationWizard() {
     trigger,
     formState: { errors },
   } = useForm<FormPerson>({
+    shouldUnregister: false,
     defaultValues: {
       intakeVersion: 2,
       documentType: "none",
@@ -297,15 +306,26 @@ export function RegistrationWizard() {
   }, [reset]);
   useEffect(() => {
     heading.current?.focus();
+    document
+      .querySelector<HTMLButtonElement>(".stepper button.current")
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
   }, [step]);
   async function run(fn: () => Promise<void>) {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError("");
+    showLoading(t("กำลังตรวจสอบและบันทึกข้อมูล"));
     try {
       await fn();
     } catch (e) {
       setError(e instanceof Error ? e.message : t("เกิดข้อผิดพลาด"));
+      await showError(
+        t("ไม่สามารถดำเนินการได้ โปรดตรวจสอบข้อความแจ้งเตือนในแบบฟอร์ม"),
+      );
     } finally {
+      closeLoading();
+      busyRef.current = false;
       setBusy(false);
     }
   }
@@ -483,6 +503,7 @@ export function RegistrationWizard() {
             },
           );
           setContactReference(result.reference);
+          await showSuccess(t("ส่งข้อมูลให้เจ้าหน้าที่แล้ว"));
           return;
         }
         if (!quote || !hold) throw new Error(t("กรุณาเลือกราคาและวันนัดใหม่"));
@@ -495,6 +516,7 @@ export function RegistrationWizard() {
           privacyAcknowledged: true,
           noticeVersion: PRIVACY_VERSION,
         });
+        await showSuccess(t("บันทึกข้อมูลและยืนยันนัดหมายแล้ว"));
         router.push("/bookings?confirmed=1");
       }
     });
@@ -622,7 +644,17 @@ export function RegistrationWizard() {
           )}
           <form
             method="post"
-            onSubmit={(event) => handleSubmit(() => next())(event)}
+            aria-busy={busy}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleSubmit(
+                () => next(),
+                () =>
+                  void showWarning(
+                    t("กรุณาตรวจสอบช่องที่แสดงข้อความผิดพลาดก่อนดำเนินการต่อ"),
+                  ),
+              )(event);
+            }}
           >
             {step === 0 && (
               <>
@@ -669,6 +701,7 @@ export function RegistrationWizard() {
                     <input
                       id="birthdate"
                       type="date"
+                      autoComplete="bday"
                       max={new Date().toISOString().slice(0, 10)}
                       {...register("birthdate", {
                         required: t("กรุณาระบุวันเกิด"),
@@ -741,6 +774,7 @@ export function RegistrationWizard() {
                     <input
                       id="phone"
                       type="tel"
+                      inputMode="tel"
                       autoComplete="tel"
                       {...register("phone", { required: true })}
                       onChange={(e) => {

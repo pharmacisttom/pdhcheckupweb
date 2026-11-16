@@ -8,7 +8,13 @@ export function PublicMobileNav() {
   const { t } = useLanguage();
   if (
     path.startsWith("/auth/") ||
-    ["/login", "/invite", "/forgot-password", "/reset-password"].includes(path)
+    [
+      "/login",
+      "/invite",
+      "/forgot-password",
+      "/reset-password",
+      "/register",
+    ].includes(path)
   )
     return null;
   const items = [

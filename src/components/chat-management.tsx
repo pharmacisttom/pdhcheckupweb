@@ -2,6 +2,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { request } from "@/lib/client";
+import {
+  closeLoading,
+  showError,
+  showLoading,
+  showSuccess,
+} from "@/lib/alerts";
 type Department = {
   id: string;
   name: string;
@@ -110,16 +116,20 @@ export function ChatManagement({
       disposed = true;
     };
   }, [mode]);
-  async function run(fn: () => Promise<void>) {
+  async function run(fn: () => Promise<void>, success = "บันทึกข้อมูลแล้ว") {
     setBusy(true);
     setError("");
     setStatus("");
+    showLoading("กำลังดำเนินการ");
     try {
       await fn();
-      setStatus("บันทึกเรียบร้อย");
+      setStatus(success);
+      void showSuccess(success);
     } catch (e) {
       setError((e as Error).message);
+      void showError("ดำเนินการไม่สำเร็จ โปรดตรวจสอบข้อความในหน้า");
     } finally {
+      closeLoading();
       setBusy(false);
     }
   }
@@ -675,13 +685,13 @@ export function ChatManagement({
             <div className="chat-actions">
               <button
                 className="button secondary"
-                onClick={() => void run(() => exportReport("csv"))}
+                onClick={() => void run(() => exportReport("csv"), "ส่งออก CSV แล้ว")}
               >
                 ดาวน์โหลด CSV
               </button>
               <button
                 className="button secondary"
-                onClick={() => void run(() => exportReport("xlsx"))}
+                onClick={() => void run(() => exportReport("xlsx"), "ส่งออก XLSX แล้ว")}
               >
                 ดาวน์โหลด XLSX
               </button>

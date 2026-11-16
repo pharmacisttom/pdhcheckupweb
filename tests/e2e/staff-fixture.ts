@@ -6,10 +6,10 @@ export async function syntheticStaff(role = "superadmin") {
   const url = new URL(process.env.DATABASE_URL!);
   if (
     !["localhost", "127.0.0.1"].includes(url.hostname) ||
-    !["/pdh_healthcheck", "/pdh_healthcheck_test"].includes(url.pathname) ||
-    process.env.SEED_DEMO !== "true"
+    url.pathname !== "/pdh_healthcheck_rc01_test" ||
+    process.env.PDH_TEST_ALLOW_SYNTHETIC_FIXTURES !== "true"
   )
-    throw Error("Synthetic localhost development database required");
+    throw Error("Synthetic fixtures require the dedicated RC01 test database");
   const db = new PrismaClient();
   const email = crypto.randomUUID() + "@browser-staff.invalid";
   const password = "Browser-only-" + crypto.randomUUID();

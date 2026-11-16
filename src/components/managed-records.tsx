@@ -2,6 +2,14 @@
 import { useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { request, money, dateTime } from "@/lib/client";
+import {
+  closeLoading,
+  showConfirm,
+  showError,
+  showLoading,
+  showSuccess,
+  showTextPrompt,
+} from "@/lib/alerts";
 type Kind =
   "organizations" | "services" | "slots" | "waitlist" | "finance" | "privacy";
 type Row = { id: string; revision: number; [key: string]: unknown };
@@ -78,18 +86,23 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
   }
   async function redactChat(conversationId: string) {
     if (!selected) return;
-    const reason = window.prompt(
-      "เหตุผล/หลักฐานอนุมัติการปกปิดแชตตามคำร้อง (ห้ามใส่ข้อมูลสุขภาพ)",
+    const reason = await showTextPrompt(
+      "ปกปิดข้อความแชต",
+      "ระบุเหตุผล/หลักฐานอนุมัติ (ห้ามใส่ข้อมูลสุขภาพ)",
+      "ดำเนินการต่อ",
     );
-    if (!reason?.trim()) return;
+    if (!reason) return;
     if (
-      !window.confirm(
-        "ยืนยันปกปิดข้อความแชตตามคำร้องที่ตรวจสอบแล้ว? รายการนี้จะไม่สามารถอ่านผ่านระบบได้",
+      !(await showConfirm(
+        "ยืนยันปกปิดข้อความแชตตามคำร้องที่ตรวจสอบแล้ว รายการนี้จะไม่สามารถอ่านผ่านระบบได้",
+        "ยืนยันการปกปิดข้อความ",
+        "ปกปิดข้อความ",
+      ))
       )
-    )
       return;
     setBusy(true);
     setError("");
+    showLoading("กำลังปกปิดข้อความ");
     try {
       await request(
         "admin/manage/privacy/" + selected.id + "/chats/" + conversationId,
@@ -99,9 +112,12 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
       setPrivacyChats((old) => old.filter((c) => c.id !== conversationId));
       await load();
       setNotice("ปกปิดแชตและบันทึกประวัติคำร้องแล้ว");
+      void showSuccess("ปกปิดข้อความและบันทึกประวัติแล้ว");
     } catch (e) {
       setError((e as Error).message);
+      void showError("ไม่สามารถปกปิดข้อความได้ โปรดตรวจสอบรายละเอียดในหน้า");
     } finally {
+      closeLoading();
       setBusy(false);
     }
   }
@@ -133,6 +149,7 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
   async function edit(row: Row) {
     setBusy(true);
     setError("");
+    showLoading("กำลังบันทึกข้อมูล");
     try {
       const detail = [
         "organizations",
@@ -237,6 +254,25 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
           pending.current = { body: canonical, key: crypto.randomUUID() };
         body.idempotencyKey = pending.current.key;
       }
+      const deactivating =
+        !creating &&
+        ((kind === "services" && body.active === false && selected?.active !== false) ||
+          (kind === "organizations" &&
+            body.status === "inactive" &&
+            selected?.status !== "inactive") ||
+          (kind === "slots" && body.closed === true && selected?.closed !== true));
+      if (
+        deactivating &&
+        !(await showConfirm(
+          "ยืนยันปิดใช้งานรายการนี้ ข้อมูลประวัติเดิมจะยังคงอยู่",
+          "ยืนยันการปิดใช้งาน",
+          "ปิดใช้งาน",
+        ))
+      ) {
+        setBusy(false);
+        return;
+      }
+      showLoading("กำลังบันทึกข้อมูล");
       if (creating && kind === "organizations")
         await request("admin/organizations", {
           name: text("name"),
@@ -258,9 +294,12 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
       pending.current = null;
       setNotice("บันทึกเรียบร้อย");
       await load();
+      void showSuccess("บันทึกข้อมูลแล้ว");
     } catch (e) {
       setError((e as Error).message);
+      void showError("บันทึกข้อมูลไม่สำเร็จ โปรดตรวจสอบข้อความในหน้า");
     } finally {
+      closeLoading();
       setBusy(false);
     }
   }

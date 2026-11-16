@@ -2,6 +2,14 @@
 import { ManagedRecords } from "./managed-records";
 import { useEffect, useState } from "react";
 import { request, dateTime } from "@/lib/client";
+import {
+  closeLoading,
+  showConfirm,
+  showError,
+  showLoading,
+  showSuccess,
+  showTextPrompt,
+} from "@/lib/alerts";
 import { ErrorState, Loading, PageHeader, StatusBadge } from "./ui";
 type Questionnaire = {
   id: string;
@@ -83,13 +91,17 @@ export function ConfigurationWorkspace({
   async function mutate(fn: () => Promise<unknown>) {
     setBusy(true);
     setError("");
+    showLoading("กำลังบันทึกการตั้งค่า");
     try {
       await fn();
       setNotice("บันทึกข้อมูลแล้ว");
       await load();
+      void showSuccess("บันทึกข้อมูลแล้ว");
     } catch (e) {
       setError((e as Error).message);
+      void showError("บันทึกข้อมูลไม่สำเร็จ โปรดตรวจสอบรายละเอียดในหน้า");
     } finally {
+      closeLoading();
       setBusy(false);
     }
   }
@@ -207,12 +219,21 @@ export function ConfigurationWorkspace({
                   <button
                     className="button ghost"
                     disabled={busy}
-                    onClick={() => {
-                      const reason = window.prompt(
-                        "เหตุผลที่เก็บแบบประเมินเข้าคลัง",
+                    onClick={async () => {
+                      const reason = await showTextPrompt(
+                        "เก็บแบบประเมินเข้าคลัง",
+                        "ระบุเหตุผลที่เก็บแบบประเมินเข้าคลัง",
+                        "เก็บเข้าคลัง",
                       );
-                      if (reason?.trim())
-                        void mutate(() =>
+                      if (
+                        reason &&
+                        (await showConfirm(
+                          "เก็บแบบประเมินนี้เข้าคลังและหยุดใช้กับการลงทะเบียนใหม่หรือไม่",
+                          "ยืนยันเก็บแบบประเมินเข้าคลัง",
+                          "เก็บเข้าคลัง",
+                        ))
+                      )
+                        await mutate(() =>
                           request("admin/questionnaires/archive", {
                             id: q.id,
                             revision: q.revision,
@@ -228,13 +249,14 @@ export function ConfigurationWorkspace({
                   <button
                     className="button small"
                     disabled={busy}
-                    onClick={() => {
+                    onClick={async () => {
                       if (
-                        window.confirm(
-                          "ยืนยันว่าตรวจสอบเนื้อหา เงื่อนไข และความเหมาะสมทางคลินิกแล้ว?",
+                        await showConfirm(
+                          "ยืนยันว่าตรวจสอบเนื้อหา เงื่อนไข และความเหมาะสมทางคลินิกแล้ว",
+                          "อนุมัติแบบประเมิน",
                         )
                       )
-                        mutate(() =>
+                        await mutate(() =>
                           request("admin/questionnaires/approve", { id: q.id }),
                         );
                     }}

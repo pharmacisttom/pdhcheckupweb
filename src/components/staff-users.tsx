@@ -4,6 +4,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { request } from "@/lib/client";
+import {
+  closeLoading,
+  showConfirm,
+  showError,
+  showLoading,
+  showSuccess,
+} from "@/lib/alerts";
 import { staffRoles } from "@/lib/staff-roles";
 import { ErrorState, Loading, PageHeader } from "./ui";
 const invitationLabels: Record<string, string> = {
@@ -110,12 +117,19 @@ export function StaffUsers({ role }: { role: string }) {
     path: string,
     data: Record<string, unknown>,
   ) {
-    if (!window.confirm("ยืนยันบันทึกการจัดการบัญชีเจ้าหน้าที่?")) return;
+    if (
+      !(await showConfirm(
+        "ยืนยันบันทึกการจัดการบัญชีเจ้าหน้าที่",
+        "ยืนยันการเปลี่ยนแปลงบัญชี",
+      ))
+    )
+      return;
     const values = new FormData(form);
     setBusy(true);
     setError("");
     setNotice("");
     setInvite(null);
+    showLoading("กำลังบันทึกข้อมูลบัญชี");
     try {
       const result = await request<MutationResult>(path, {
         ...data,
@@ -146,9 +160,12 @@ export function StaffUsers({ role }: { role: string }) {
       );
       await queryClient.invalidateQueries({ queryKey: ["staff-invitations"] });
       await queryClient.invalidateQueries({ queryKey: ["staff-users"] });
+      void showSuccess("บันทึกการจัดการบัญชีเจ้าหน้าที่แล้ว");
     } catch (e) {
       setError((e as Error).message);
+      void showError("ไม่สามารถบันทึกการจัดการบัญชีได้ โปรดตรวจสอบรายละเอียดในหน้า");
     } finally {
+      closeLoading();
       for (const name of ["adminPassword", "adminMfa", "temporaryPassword"]) {
         const input = form.elements.namedItem(name) as HTMLInputElement | null;
         if (input) input.value = "";
@@ -501,17 +518,19 @@ export function StaffUsers({ role }: { role: string }) {
             <form
               className="form-grid"
               method="post"
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
-                const f = new FormData(e.currentTarget);
+                const form = e.currentTarget;
+                const f = new FormData(form);
                 const action = String(f.get("action"));
                 if (
-                  !window.confirm(
-                    "ยืนยันดำเนินการกับบัญชีนี้? เซสชันเดิมจะถูกเพิกถอน",
-                  )
+                  !(await showConfirm(
+                    "ยืนยันดำเนินการกับบัญชีนี้ เซสชันเดิมจะถูกเพิกถอน",
+                    "ยืนยันการจัดการบัญชี",
+                  ))
                 )
                   return;
-                void submit(e.currentTarget, "admin/users/action", {
+                await submit(form, "admin/users/action", {
                   id: selected.id,
                   action,
                   reason: f.get("reason"),
