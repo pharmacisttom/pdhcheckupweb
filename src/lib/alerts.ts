@@ -105,5 +105,7 @@ export function showLoading(title = "กำลังบันทึกข้อ�
 }
 
 export function closeLoading() {
-  if (Swal.isLoading()) Swal.close();
+  // The loading popup may be visible before didOpen activates its spinner.
+  // Close it in either state, but never dismiss an unrelated confirmation/toast.
+  if (Swal.isVisible() && !Swal.getPopup()?.classList.contains("swal2-toast")) Swal.close();
 }
