@@ -548,7 +548,7 @@ test("questionnaire draft edit and archive UI", async ({ page, context }) => {
     .getByRole("button", { name: "บันทึกฉบับร่าง", exact: true })
     .click();
   await expect(
-    page.getByText("บันทึกข้อมูลแล้ว", { exact: true }),
+    page.getByRole("status", { name: "บันทึกข้อมูลแล้ว" }),
   ).toBeVisible();
   const q = await db.questionnaire.findFirstOrThrow({
     orderBy: { version: "desc" },
@@ -617,7 +617,7 @@ test("SweetAlert2 error is generic while the field-level API error remains visib
   const alert = page.locator(".swal2-popup");
   await expect(alert).toContainText("บันทึกข้อมูลไม่สำเร็จ");
   await expect(alert).not.toContainText("SYNTHETIC_PRIVATE_SERVER_ERROR");
-  await expect(page.getByText("SYNTHETIC_PRIVATE_SERVER_ERROR")).toBeVisible();
+  await expect(page.getByRole("dialog").getByText("SYNTHETIC_PRIVATE_SERVER_ERROR")).toBeVisible();
   await page.locator(".swal2-confirm").click();
 });
 
@@ -713,7 +713,7 @@ test("chat department create rename and deactivate UI", async ({
     name: "Synthetic revised department",
     active: false,
   });
-  await expect(page.getByRole("status")).toHaveText("บันทึกเรียบร้อย");
+  await expect(page.getByRole("status")).toHaveText("บันทึกข้อมูลแล้ว");
   await expect(editForm.getByLabel("ชื่อหน่วยงาน", { exact: true })).toHaveValue(
     "Synthetic revised department",
   );
