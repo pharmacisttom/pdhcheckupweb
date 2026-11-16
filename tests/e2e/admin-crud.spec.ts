@@ -270,6 +270,14 @@ test("saved registration is visible to staff without being miscounted as a booki
     expect(draftResponse.status()).toBe(200);
     const draftBody = await draftResponse.json();
     expect(draftBody.data.id).toBe(pendingId);
+    const savedResponse = await page.request.get(
+      "http://localhost:3037/api/v1/registrations/saved",
+    );
+    expect(savedResponse.status()).toBe(200);
+    const savedBody = await savedResponse.json();
+    expect(savedBody.data).toContainEqual(
+      expect.objectContaining({ id: pendingId }),
+    );
 
     await auth(context, staff.id);
     const response = await page.request.get(
