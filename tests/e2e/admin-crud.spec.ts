@@ -256,6 +256,21 @@ test("saved registration is visible to staff without being miscounted as a booki
     },
   })).id;
   try {
+    // The owner can still reopen their own saved form after its draft TTL.
+    await context.addCookies([{
+      name: "pdh_session",
+      value: marker,
+      url: "http://localhost:3037",
+      httpOnly: true,
+      sameSite: "Lax",
+    }]);
+    const draftResponse = await page.request.get(
+      "http://localhost:3037/api/v1/registrations/draft",
+    );
+    expect(draftResponse.status()).toBe(200);
+    const draftBody = await draftResponse.json();
+    expect(draftBody.data.id).toBe(pendingId);
+
     await auth(context, staff.id);
     const response = await page.request.get(
       "http://localhost:3037/api/v1/admin/registrations/pending",
