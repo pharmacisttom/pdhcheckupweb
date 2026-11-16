@@ -142,7 +142,17 @@ export const contactStatuses: Record<string, string> = {
   scheduled: "นัดแล้ว",
   closed: "ปิดเรื่อง",
 };
+type PendingRegistration = {
+  id: string;
+  status: "registered_not_booked";
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  questionnaireVersion: number;
+};
 export function ContactRequests() {
+  const [pending, setPending] = useState<PendingRegistration[] | null>(null);
+  const [pendingError, setPendingError] = useState("");
   const [rows, setRows] = useState<Contact[] | null>(null);
   const [assignees, setAssignees] = useState<{ id: string; name: string }[]>(
     [],
@@ -154,12 +164,17 @@ export function ContactRequests() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
+  const loadPending = () =>
+    request<PendingRegistration[]>("admin/registrations/pending")
+      .then(setPending)
+      .catch((e) => setPendingError((e as Error).message));
   const load = () =>
     request<Contact[]>("admin/contact-requests")
       .then(setRows)
       .catch((e) => setError(e.message));
   useEffect(() => {
     load();
+    loadPending();
     request<{ id: string; name: string }[]>("admin/contact-requests/assignees")
       .then(setAssignees)
       .catch((e) => setError(e.message));
@@ -199,6 +214,32 @@ export function ContactRequests() {
       />
       {error && <ErrorState message={error} />}
       {!rows && !error && <Loading />}
+      <section className="card" aria-label="ลงทะเบียนแล้วแต่ยังไม่จอง" style={{ marginBottom: 24 }}>
+        <h2>ลงทะเบียนแล้ว แต่ยังไม่ส่งคำขอหรือยืนยันการจอง</h2>
+        <p>ข้อมูลเหล่านี้ถูกบันทึกในระบบแล้ว แต่ยังไม่มีเลขอ้างอิงการจอง กรุณาตรวจสอบขั้นตอนถัดไปกับผู้รับบริการ</p>
+        {pendingError && <ErrorState message={pendingError} />}
+        {pending === null && !pendingError && <Loading />}
+        {pending !== null && pending.length === 0 && (
+          <p role="status">ไม่มีข้อมูลลงทะเบียนที่รอดำเนินการ</p>
+        )}
+        {pending !== null && pending.length > 0 && (
+          <div className="table-wrap">
+            <table className="responsive-table">
+              <thead><tr><th>รหัสรายการ (บางส่วน)</th><th>บันทึกเมื่อ</th><th>แก้ไขล่าสุด</th><th>สถานะ</th></tr></thead>
+              <tbody>
+                {pending.map((r) => (
+                  <tr key={r.id}>
+                    <td data-label="รหัสรายการ">{r.id.slice(-8)}</td>
+                    <td data-label="บันทึกเมื่อ">{dateTime(r.createdAt)}</td>
+                    <td data-label="แก้ไขล่าสุด">{dateTime(r.updatedAt)}</td>
+                    <td data-label="สถานะ">ลงทะเบียนแล้ว · รอขั้นตอนจอง</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
       <label className="field">
         กรองสถานะ
         <select value={filter} onChange={(e) => setFilter(e.target.value)}>
