@@ -310,6 +310,8 @@ test("organization create edit disable and mobile modal", async ({
     .getByLabel("ผู้ประสานงาน / ช่องทางติดต่อ", { exact: true })
     .fill("Synthetic contact");
   await save(page);
+  await page.getByLabel("ค้นหาในฐานข้อมูล", { exact: true }).fill(marker);
+  await page.getByLabel("ค้นหาในฐานข้อมูล", { exact: true }).press("Enter");
   dialog = await edit(page, marker);
   await dialog
     .getByLabel("ชื่อองค์กร", { exact: true })
@@ -373,7 +375,7 @@ test("service metadata editor and slot lifecycle", async ({
   await page
     .getByLabel("ค้นหาในฐานข้อมูล", { exact: true })
     .fill("NEW-" + marker);
-  await page.getByRole("button", { name: "ค้นหา", exact: true }).click();
+  await page.getByLabel("ค้นหาในฐานข้อมูล", { exact: true }).press("Enter");
   d = await edit(page, "NEW-" + marker);
   await d
     .getByLabel("ชื่อบริการภาษาอังกฤษ", { exact: true })
@@ -398,7 +400,7 @@ test("service metadata editor and slot lifecycle", async ({
   await save(page);
   const slot = await db.slot.findFirstOrThrow({ where: { dayId: day } });
   await page.getByLabel("ค้นหาวัน (YYYY-MM-DD)", { exact: true }).fill(day);
-  await page.getByRole("button", { name: "ค้นหา", exact: true }).click();
+  await page.getByLabel("ค้นหาวัน (YYYY-MM-DD)", { exact: true }).press("Enter");
   d = await edit(page, slot.id);
   await d.getByLabel("ปิดช่วงเวลา", { exact: true }).check();
   await d.getByLabel("เหตุผล / บันทึกดำเนินการ").fill("Synthetic close slot");
@@ -548,7 +550,7 @@ test("questionnaire draft edit and archive UI", async ({ page, context }) => {
     .getByRole("button", { name: "บันทึกฉบับร่าง", exact: true })
     .click();
   await expect(
-    page.getByRole("status", { name: "บันทึกข้อมูลแล้ว" }),
+    page.getByRole("status").filter({ hasText: "บันทึกข้อมูลแล้ว" }),
   ).toBeVisible();
   const q = await db.questionnaire.findFirstOrThrow({
     orderBy: { version: "desc" },
