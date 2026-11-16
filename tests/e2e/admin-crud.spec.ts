@@ -453,11 +453,20 @@ test("service metadata editor and slot lifecycle", async ({
   d = page.getByRole("dialog").filter({ has: page.locator("form") });
   await expect(d).toBeVisible();
   await d.getByLabel("ปิดช่วงเวลา", { exact: true }).check();
+  await expect(d.getByLabel("ปิดช่วงเวลา", { exact: true })).toBeChecked();
   await d.getByLabel("เหตุผล / บันทึกดำเนินการ").fill("Synthetic close slot");
+  const closeSlotResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" &&
+    new URL(response.url()).pathname === "/api/v1/admin/manage/slots/" + slot.id,
+    { timeout: 20000 },
+  );
   await save(page, true);
-  expect(
-    (await db.slot.findUniqueOrThrow({ where: { id: slot.id } })).closed,
-  ).toBe(true);
+  const closedSlot = await closeSlotResponse;
+  expect(closedSlot.status(), await closedSlot.text()).toBe(200);
+  expect(closedSlot.request().postDataJSON()).toMatchObject({ closed: true });
+  await expect.poll(async () => (
+    await db.slot.findUniqueOrThrow({ where: { id: slot.id } })
+  ).closed).toBe(true);
 });
 test("package clone prefill and clinician read approval permission", async ({
   page,
