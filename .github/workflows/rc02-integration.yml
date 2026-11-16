@@ -95,6 +95,8 @@ jobs:
         run: |
           printf 'DATABASE_URL=%s\n' "$DATABASE_URL" > .env
           chmod 600 .env
+      - name: Critical Radix/SweetAlert browser smoke (fail fast)
+        run: npx playwright test tests/e2e/admin-crud.spec.ts --grep "organization create edit disable"
       - name: Admin and mobile browser E2E (clean exit required)
         run: npm run test:admin-crud:e2e
       - name: Clean up ephemeral test config
