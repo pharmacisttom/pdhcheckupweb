@@ -1078,23 +1078,19 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
     await guard("bookings:read");
     // Staff triage queue: pending registration is not a confirmed booking.
     // Never decrypt clinical/personal details in this list response.
-    const pending = await db.registration.findMany({
-      where: {
-        booking: null,
-        id: { notIn: (await db.contactRequest.findMany({
-          select: { registrationId: true },
-        })).map((r) => r.registrationId) },
-      },
-      select: {
-        id: true,
-        createdAt: true,
-        updatedAt: true,
-        expiresAt: true,
-        questionnaireVersion: true,
-      },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+    const pending = await db.$queryRaw<Array<{
+      id: string;
+      createdAt: Date;
+      updatedAt: Date;
+      expiresAt: Date;
+      questionnaireVersion: number;
+    }>>`SELECT r.id, r.createdAt, r.updatedAt, r.expiresAt,
+      r.questionnaireVersion
+      FROM Registration r
+      LEFT JOIN Booking b ON b.registrationId = r.id
+      LEFT JOIN ContactRequest c ON c.registrationId = r.id
+      WHERE b.id IS NULL AND c.id IS NULL
+      ORDER BY r.createdAt DESC LIMIT 100`;
     return pending.map((r) => ({
       id: r.id,
       createdAt: r.createdAt,
