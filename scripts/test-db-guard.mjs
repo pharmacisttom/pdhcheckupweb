@@ -68,13 +68,16 @@ export function assertMigrationState(row) {
 
 export async function verifyRc02TestDatabase(prisma, rawUrl) {
   const url = parseRc02TestDatabaseUrl(rawUrl);
+  let phase = "identity";
   try {
     const identityRows = await prisma.$queryRaw`
       SELECT CURRENT_USER() AS current_user, DATABASE() AS database_name
     `;
     assertTestIdentity(identityRows[0], url.hostname.toLowerCase());
+    phase = "grants";
     const grantRows = await prisma.$queryRaw`SHOW GRANTS FOR CURRENT_USER()`;
     assertTestGrants(grantRows);
+    phase = "migrations";
     const migrationRows = await prisma.$queryRaw`
       SELECT
         COUNT(*) AS total_migrations,
@@ -87,6 +90,7 @@ export async function verifyRc02TestDatabase(prisma, rawUrl) {
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("Refusing tests:"))
       throw error;
-    throw new Error("Refusing tests: unable to verify dedicated database credentials and state");
+    const code = typeof error?.code === "string" ? error.code : "QUERY_ERROR";
+    throw new Error("Refusing tests: unable to verify dedicated database credentials and state at " + phase + " (" + code + ")");
   }
 }
