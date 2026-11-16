@@ -2,6 +2,7 @@
 import { useLanguage } from "@/components/language-provider";
 import { useEffect, useState } from "react";
 import { RecoverInterest } from "./recover-interest";
+import { RecoverRegistration } from "./recover-registration";
 import { contactStatuses } from "./booking-control";
 import QRCode from "qrcode";
 import { request, money, dateTime } from "@/lib/client";
@@ -29,6 +30,11 @@ export function Bookings() {
   const [otpIsRequired, setOtpIsRequired] = useState(false);
   const [list, setList] = useState<Booking[] | null>(null);
   const [error, setError] = useState("");
+  const [saved, setSaved] = useState<{
+    id: string;
+    createdAt: string;
+    updatedAt: string;
+  }[]>([]);
   const [contacts, setContacts] = useState<
     {
       id: string;
@@ -93,6 +99,7 @@ export function Bookings() {
       const bookings = await request<Booking[]>("bookings");
       setList(bookings);
       setContacts(await request("contact-requests"));
+      setSaved(await request("registrations/saved"));
       const images = await Promise.all(
         bookings.map(async (b) => [
           b.id,
@@ -152,6 +159,19 @@ export function Bookings() {
           void load();
         }}
       />
+      <RecoverRegistration onRecovered={() => { setError(""); void load(); }} />
+      <section className="card" style={{ marginBottom: 20 }} aria-label="ข้อมูลลงทะเบียนที่บันทึกไว้">
+        <h2>{t("บันทึกข้อมูลแล้ว แต่ยังไม่ได้ยืนยันการจอง")}</h2>
+        <p>{t("รายการต่อไปนี้เป็นข้อมูลลงทะเบียนที่บันทึกไว้ ไม่ใช่เลขจองหรือวันนัดหมาย กรุณากลับไปดำเนินการต่อ")}</p>
+        {saved.length === 0 && <p role="status">{t("ไม่มีแบบร่างลงทะเบียนในเซสชันนี้")}</p>}
+        {saved.map((entry) => (
+          <article key={entry.id} style={{ marginTop: 12, overflowWrap: "anywhere" }}>
+            <strong>{t("รหัสลงทะเบียน:")} {entry.id}</strong>
+            <p>{t("บันทึกล่าสุด:")} {dateTime(entry.updatedAt, locale)}</p>
+            <a href="/register" className="button secondary small">{t("กลับไปดำเนินการต่อ")}</a>
+          </article>
+        ))}
+      </section>
       {error && <ErrorState message={error} />} {!list && !error && <Loading />}
       {editing && (
         <section className="card" style={{ marginBottom: 20 }}>
