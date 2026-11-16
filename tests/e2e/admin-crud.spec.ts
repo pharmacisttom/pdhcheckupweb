@@ -310,6 +310,11 @@ test("organization create edit disable and mobile modal", async ({
     .getByLabel("ผู้ประสานงาน / ช่องทางติดต่อ", { exact: true })
     .fill("Synthetic contact");
   await save(page);
+  // Verify the saved row persists through a full page reload before editing.
+  await expect.poll(async () => db.organization.count({
+    where: { name: { contains: marker } },
+  })).toBe(1);
+  await page.reload();
   await page.getByLabel("ค้นหาในฐานข้อมูล", { exact: true }).fill(marker);
   await page.getByLabel("ค้นหาในฐานข้อมูล", { exact: true }).press("Enter");
   dialog = await edit(page, marker);
@@ -372,6 +377,10 @@ test("service metadata editor and slot lifecycle", async ({
   await d.getByLabel("หมวดหมู่", { exact: true }).fill("test");
   await d.getByLabel("หน่วย", { exact: true }).fill("ครั้ง");
   await save(page);
+  await expect.poll(async () => db.service.count({
+    where: { code: "NEW-" + marker },
+  })).toBe(1);
+  await page.reload();
   await page
     .getByLabel("ค้นหาในฐานข้อมูล", { exact: true })
     .fill("NEW-" + marker);
