@@ -455,7 +455,7 @@ test("package clone prefill and clinician read approval permission", async ({
   await expect(page.getByText("เลือกรายการตรวจแล้ว 1 รายการ")).toBeVisible();
   await page.getByRole("button", { name: /บันทึก.*ร่าง/ }).click();
   await expect(
-    page.getByText(
+    page.locator("#main").getByText(
       "สร้างเวอร์ชันฉบับร่างแล้ว ต้องได้รับการอนุมัติก่อนแสดงในเว็บไซต์",
     ),
   ).toBeVisible();
