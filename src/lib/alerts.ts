@@ -25,6 +25,7 @@ function show(icon: SweetAlertIcon, title: string, text: string) {
 export async function showSuccess(message: string, title = "สำเร็จ") {
   await Swal.fire({
     ...defaults,
+    heightAuto: undefined,
     icon: "success",
     title,
     text: message,
