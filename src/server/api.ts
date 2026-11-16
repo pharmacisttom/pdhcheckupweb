@@ -1108,6 +1108,41 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
       orderBy: { name: "asc" },
     });
   }
+  if (path.join("/") === "registrations/pending/detail" && req.method === "GET") {
+    const staff = await guard("bookings:read");
+    const registrationId = z.string().min(10).max(100).parse(
+      new URL(req.url).searchParams.get("id"),
+    );
+    const registration = await db.registration.findUnique({
+      where: { id: registrationId },
+      include: { booking: { select: { id: true } } },
+    });
+    const submitted = await db.contactRequest.findUnique({
+      where: { registrationId },
+      select: { id: true },
+    });
+    if (!registration || registration.booking || submitted)
+      throw new AppError(404, "ไม่พบรายการที่รอดำเนินการ");
+    await db.$transaction((tx) =>
+      audit(tx, staff.user!.id, "registration.pending_viewed", registrationId),
+    );
+    const person = decrypt<{
+      firstName?: string;
+      lastName?: string;
+      phone?: string;
+      email?: string;
+    }>(registration.draftEncrypted);
+    return {
+      id: registration.id,
+      createdAt: registration.createdAt,
+      status: "registered_not_booked",
+      contact: {
+        name: [person.firstName, person.lastName].filter(Boolean).join(" "),
+        phone: person.phone ?? "",
+        email: person.email ?? "",
+      },
+    };
+  }
   if (path.join("/") === "registrations/pending" && req.method === "GET") {
     await guard("bookings:read");
     // Staff triage queue: pending registration is not a confirmed booking.
