@@ -66,7 +66,7 @@ export async function submitContactRequest(
         where: {
           id: input.registrationId,
           ownerSessionId: sessionId,
-          expiresAt: { gt: new Date() },
+          // RC02: the saved registration is durable; only quotes and holds expire.
           booking: null,
         },
       });
