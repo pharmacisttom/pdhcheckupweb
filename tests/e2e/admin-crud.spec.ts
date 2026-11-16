@@ -414,6 +414,16 @@ test("service metadata editor and slot lifecycle", async ({
   await page.getByLabel("ค้นหาวัน (YYYY-MM-DD)", { exact: true }).fill(day);
   await page.getByLabel("ค้นหาวัน (YYYY-MM-DD)", { exact: true }).press("Enter");
   await expect.poll(async () => db.slot.count({ where: { id: slot.id, dayId: day } })).toBe(1);
+  // Verify the API result as well as the rendered card. If these differ,
+  // the browser failure is a rendering/state bug rather than DB persistence.
+  await expect.poll(async () => {
+    const response = await page.request.get(
+      "/api/v1/admin/manage/slots?page=1&q=" + encodeURIComponent(day),
+    );
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    return (body.data?.rows ?? []).map((row: { id: string }) => row.id);
+  }).toContain(slot.id);
   await expect(page.locator(".managed-records article").filter({ hasText: slot.id })).toHaveCount(1);
   d = await edit(page, slot.id);
   await d.getByLabel("ปิดช่วงเวลา", { exact: true }).check();
