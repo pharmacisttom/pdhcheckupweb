@@ -153,6 +153,10 @@ type PendingRegistration = {
 export function ContactRequests() {
   const [pending, setPending] = useState<PendingRegistration[] | null>(null);
   const [pendingError, setPendingError] = useState("");
+  const [pendingDetail, setPendingDetail] = useState<{
+    id: string;
+    contact: { name: string; phone: string; email: string };
+  } | null>(null);
   const [rows, setRows] = useState<Contact[] | null>(null);
   const [assignees, setAssignees] = useState<{ id: string; name: string }[]>(
     [],
@@ -232,12 +236,42 @@ export function ContactRequests() {
                     <td data-label="รหัสรายการ">{r.id.slice(-8)}</td>
                     <td data-label="บันทึกเมื่อ">{dateTime(r.createdAt)}</td>
                     <td data-label="แก้ไขล่าสุด">{dateTime(r.updatedAt)}</td>
-                    <td data-label="สถานะ">ลงทะเบียนแล้ว · รอขั้นตอนจอง</td>
+                    <td data-label="สถานะ">
+                      ลงทะเบียนแล้ว · รอขั้นตอนจอง
+                      <button type="button" className="button secondary small"
+                        style={{ marginLeft: 8 }}
+                        onClick={async () => {
+                          setPendingError("");
+                          setPendingDetail(null);
+                          try {
+                            const detail = await request<{
+                              id: string;
+                              contact: { name: string; phone: string; email: string };
+                            }>("admin/registrations/pending/detail?id=" + encodeURIComponent(r.id));
+                            setPendingDetail(detail);
+                          } catch {
+                            setPendingError("ไม่สามารถเปิดข้อมูลผู้ลงทะเบียนได้ กรุณาตรวจสอบสิทธิ์การใช้งาน");
+                          }
+                        }}
+                      >ดูข้อมูลติดต่อ</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        )}
+        {pendingDetail && (
+          <section className="card" aria-label="ข้อมูลติดต่อผู้ลงทะเบียน"
+            style={{ marginTop: 14, overflowWrap: "anywhere" }}>
+            <h3>ข้อมูลสำหรับเจ้าหน้าที่ตรวจสอบ</h3>
+            <p>สถานะ: ลงทะเบียนแล้ว แต่ผู้รับบริการยังไม่ได้ยืนยันการส่งคำขอหรือการจอง</p>
+            <p><strong>ชื่อ:</strong> {pendingDetail.contact.name || "—"}</p>
+            <p><strong>โทรศัพท์:</strong> {pendingDetail.contact.phone || "—"}</p>
+            <p><strong>อีเมล:</strong> {pendingDetail.contact.email || "—"}</p>
+            <button type="button" className="button secondary small"
+              onClick={() => setPendingDetail(null)}>ปิดรายละเอียด</button>
+          </section>
         )}
       </section>
       <label className="field">
