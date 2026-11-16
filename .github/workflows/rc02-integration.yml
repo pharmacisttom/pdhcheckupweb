@@ -65,7 +65,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           sudo systemctl start mysql.service
-          sudo mysql <<'SQL'
+          # GitHub-hosted Ubuntu MySQL uses its disposable runner root password.
+          # This credential is only for the ephemeral CI machine.
+          mysql --protocol=TCP -h 127.0.0.1 -u root --password=root <<'SQL'
           CREATE DATABASE pdh_healthcheck_rc01_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE USER 'pdh_test'@'127.0.0.1' IDENTIFIED BY 'RC02SyntheticTestOnly_9';
           GRANT ALL PRIVILEGES ON pdh_healthcheck_rc01_test.* TO 'pdh_test'@'127.0.0.1';
