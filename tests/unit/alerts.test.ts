@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   fire: vi.fn(),
   close: vi.fn(),
   isLoading: vi.fn(),
+  isVisible: vi.fn(),
+  getPopup: vi.fn(),
   showLoading: vi.fn(),
 }));
 
@@ -12,6 +14,8 @@ vi.mock("sweetalert2", () => ({
     fire: mocks.fire,
     close: mocks.close,
     isLoading: mocks.isLoading,
+    isVisible: mocks.isVisible,
+    getPopup: mocks.getPopup,
     showLoading: mocks.showLoading,
   },
 }));
@@ -63,7 +67,7 @@ describe("shared SweetAlert2 helpers", () => {
     });
   });
 
-  it("opens a non-dismissible loading alert and closes only an active loader", () => {
+  it("opens a non-dismissible loading alert and closes a visible pending loader", () => {
     showLoading();
     const options = mocks.fire.mock.calls[0][0];
     expect(options).toMatchObject({
@@ -73,10 +77,11 @@ describe("shared SweetAlert2 helpers", () => {
     });
     options.didOpen();
     expect(mocks.showLoading).toHaveBeenCalledOnce();
-    mocks.isLoading.mockReturnValue(true);
+    mocks.isVisible.mockReturnValue(true);
+    mocks.getPopup.mockReturnValue({ classList: { contains: () => false } });
     closeLoading();
     expect(mocks.close).toHaveBeenCalledOnce();
-    mocks.isLoading.mockReturnValue(false);
+    mocks.isVisible.mockReturnValue(false);
     closeLoading();
     expect(mocks.close).toHaveBeenCalledOnce();
   });
