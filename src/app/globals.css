@@ -1908,3 +1908,251 @@ html:lang(km) body { font-family:'PDH Khmer',Tahoma,Arial,sans-serif; }
 @media(max-width:600px){.campaign-section{padding:20px 16px;width:calc(100% - 32px);}.campaign-education{grid-template-columns:minmax(0,1fr);padding:16px;}.campaign-featured .campaign-image-link img{max-height:320px;}}
 
 .sr-only {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0;}
+
+.recovery-code-list {padding:0;list-style:none;display:grid;gap:12px;}.recovery-code-list code {display:block;overflow-wrap:anywhere;font-size:15px;padding:12px;background:#eef5f5;}.invitation-history{overflow-wrap:anywhere;}.staff-filter-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}@media(max-width:800px){.staff-filter-grid{grid-template-columns:minmax(0,1fr);}}
+
+/* Health Chat: scoped styles, touch targets and keyboard viewport. */
+.chat-launcher{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:calc(86px + env(safe-area-inset-bottom));z-index:45;min-width:48px;min-height:48px;border-radius:28px;background:#007f78;color:white;padding:12px;box-shadow:0 3px 16px #0003;display:flex;gap:8px;align-items:center}
+.chat-overlay{position:fixed;inset:0;background:#0005;z-index:90}
+.chat-panel{position:fixed;right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));z-index:91;width:min(440px,calc(100vw - 24px));max-height:calc(var(--chat-view-height,100dvh) - 24px);background:white;color:#163846;border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;overscroll-behavior:contain;box-shadow:0 8px 40px #0004;overflow-wrap:anywhere}
+.chat-panel header{display:flex;align-items:center;justify-content:space-between;gap:12px}.chat-panel button,.chat-inbox button,.chat-panel select{min-height:44px;min-width:44px}.chat-panel textarea{font-size:16px;min-width:0;width:100%}.chat-messages{overflow-y:auto;max-height:45dvh;min-height:100px;display:flex;flex-direction:column;gap:12px;overscroll-behavior:contain}.chat-message{background:#eef5f5;padding:12px;border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere}.chat-user{background:#d9f2ec}.chat-note{background:#fff3cf;border:1px dashed #927000}.chat-message p{margin:6px 0}.chat-message a{display:block;text-decoration:underline}.chat-compose{display:flex;gap:8px;align-items:end}.chat-compose textarea{flex:1}.chat-actions,.chat-suggestions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.chat-policy{white-space:pre-wrap}.chat-inbox{display:grid;grid-template-columns:minmax(200px,280px) minmax(0,1fr);gap:24px}.chat-inbox aside button{white-space:normal;text-align:start;display:grid}.chat-inbox>*{min-width:0}@media(max-width:767px){.chat-inbox{grid-template-columns:minmax(0,1fr)}.chat-panel{padding:12px}.chat-messages{max-height:35dvh}}
+
+.managed-records{min-width:0;overflow-wrap:anywhere}.managed-records .actions{flex-wrap:wrap}.managed-records fieldset{min-width:0}
+
+/* RC02 mobile-first refinements: keep page width fixed while allowing local,
+   intentional scrollers such as the registration stepper and data tables. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+body {
+  min-width: 320px;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+main,
+section,
+article,
+form,
+.card,
+.admin-main,
+.registration-container,
+.wizard-grid > *,
+.form-grid > * {
+  min-width: 0;
+}
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
+}
+.public-header .nav {
+  padding-left: max(14px, env(safe-area-inset-left));
+  padding-right: max(14px, env(safe-area-inset-right));
+}
+footer {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.registration-container {
+  width: min(100%, 1150px);
+}
+.registration-container .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.registration-container input,
+.registration-container select,
+.registration-container textarea {
+  min-width: 0;
+  scroll-margin-block: 96px 120px;
+}
+.stepper button {
+  min-width: 0;
+  min-height: 48px;
+  overflow-wrap: anywhere;
+}
+.admin-main button,
+.admin-main a.button,
+.admin-topbar button,
+.mobile-menu-panel a,
+.mobile-menu-panel button {
+  min-height: 44px;
+}
+.admin-main .button.small,
+.sidebar nav a {
+  min-height: 44px;
+}
+.check-label {
+  min-height: 44px;
+}
+.swal2-container {
+  padding-top: max(12px, env(safe-area-inset-top));
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+.swal2-popup {
+  width: min(32em, calc(100vw - 24px));
+  max-height: calc(var(--visual-viewport-height, 100dvh) - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.swal2-actions button {
+  min-width: 100px;
+  min-height: 44px;
+}
+@media (max-width: 800px) {
+  .registration-container {
+    width: 100%;
+    margin-top: 20px;
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+  }
+  .registration-container .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .registration-container .form-grid .full {
+    grid-column: 1;
+  }
+  .stepper {
+    display: flex;
+    gap: 6px;
+    margin: 18px 0;
+    padding: 0 0 6px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+  }
+  .stepper button {
+    flex: 0 0 94px;
+    min-height: 68px;
+    padding: 8px 6px;
+    scroll-snap-align: start;
+    border: 1px solid var(--border);
+    border-bottom-width: 3px;
+    border-radius: 10px;
+    text-align: center;
+    line-height: 1.35;
+  }
+  .stepper span {
+    display: flex;
+    margin: 0 auto 4px;
+  }
+  .stepper button.current {
+    background: #eaf8f3;
+    border-color: var(--primary);
+  }
+  .wizard-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .wizard-grid > .card {
+    padding: clamp(16px, 4vw, 22px);
+  }
+  .wizard-grid > .card h2 {
+    font-size: clamp(18px, 5vw, 21px);
+    overflow-wrap: anywhere;
+  }
+  .registration-container input:not([type="checkbox"]):not([type="radio"]),
+  .registration-container select,
+  .registration-container textarea {
+    font-size: 16px;
+  }
+  .registration-container .form-actions {
+    margin-inline: -2px;
+    padding: 12px 2px;
+    background: var(--surface);
+  }
+  .registration-container .form-actions .button {
+    min-height: 48px;
+    padding-inline: 14px;
+  }
+  .summary-card {
+    position: static;
+  }
+  .review-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .admin-main {
+    padding: 18px max(12px, env(safe-area-inset-right)) 24px
+      max(12px, env(safe-area-inset-left));
+  }
+  .admin-main .card {
+    overflow-wrap: anywhere;
+  }
+  .admin-main input:not([type="checkbox"]):not([type="radio"]),
+  .admin-main select,
+  .admin-main textarea,
+  .mobile-menu-panel input,
+  .mobile-menu-panel select {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .admin-main .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .admin-main .form-grid .full {
+    grid-column: 1;
+  }
+  .admin-main .toolbar,
+  .admin-main .actions,
+  .admin-main .form-actions {
+    align-items: stretch;
+  }
+  .admin-main .toolbar .field {
+    max-width: none;
+    width: 100%;
+  }
+  .admin-main .actions > button,
+  .admin-main .actions > a,
+  .admin-main .form-actions > button {
+    flex: 1 1 auto;
+  }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    height: 100dvh;
+    height: var(--visual-viewport-height, 100dvh);
+  }
+  .modal {
+    top: max(10px, env(safe-area-inset-top));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    left: max(10px, env(safe-area-inset-left));
+    width: calc(100% - max(20px, env(safe-area-inset-left) + env(safe-area-inset-right)));
+    max-width: none;
+    max-height: none;
+    transform: none;
+    padding: 18px;
+    border-radius: 16px;
+  }
+  .table-wrap,
+  .responsive-table {
+    max-width: 100%;
+  }
+}
+@media (max-width: 380px) {
+  .container {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .registration-container .card {
+    padding: 15px;
+  }
+  .registration-container .form-actions {
+    gap: 8px;
+  }
+  .registration-container .form-actions .button {
+    gap: 5px;
+    padding-inline: 10px;
+    font-size: 13px;
+  }
+  .admin-main {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .metric-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

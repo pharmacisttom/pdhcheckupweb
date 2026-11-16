@@ -1,0 +1,54 @@
+name: RC01 Static Security Checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [fix/security-hardening-rc01]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc01-static-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-and-unit:
+    name: Typecheck, lint, unit (no database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: "true"
+      NODE_ENV: test
+      RUN_DB_TESTS: "false"
+      OTP_PROVIDER: disabled
+      EMAIL_PROVIDER: disabled
+      CHAT_ENABLED: "false"
+      CHAT_AI_ENABLED: "false"
+      CHAT_EXTERNAL_PROCESSING_APPROVED: "false"
+      APP_URL: http://127.0.0.1:3036
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Create ephemeral test-only secrets
+        shell: bash
+        run: |
+          echo "DATA_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "OTP_PEPPER=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Generate Prisma client (no connection)
+        run: npx prisma generate
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests only (database tests disabled)
+        run: npm run test:unit

@@ -2,13 +2,15 @@ import { defineConfig } from "@playwright/test";
 import { loadEnvFile } from "node:process";
 loadEnvFile(".env");
 const url = new URL(process.env.DATABASE_URL!);
-if (!["localhost", "127.0.0.1"].includes(url.hostname))
-  throw Error("Local test database only");
-url.pathname = "/pdh_healthcheck_test";
-process.env.DATABASE_URL = url.toString();
+if (
+  !["localhost", "127.0.0.1"].includes(url.hostname) ||
+  decodeURIComponent(url.username) !== "pdh_test" ||
+  decodeURIComponent(url.pathname.slice(1)) !== "pdh_healthcheck_rc01_test"
+)
+  throw Error("RC01 dedicated localhost test database required");
 process.env.APP_URL = "http://localhost:3037";
 process.env.OTP_PROVIDER = "test";
-process.env.PDH_TEST_DIST_DIR = ".local/next-interest";
+process.env.PDH_TEST_DIST_DIR ??= ".local/next-interest";
 export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: "interest-workflow.spec.ts",

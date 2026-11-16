@@ -1,6 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
+import { canReviewTransition } from "@/lib/intake";
 import { request, dateTime } from "@/lib/client";
+import {
+  closeLoading,
+  showError,
+  showLoading,
+  showSuccess,
+} from "@/lib/alerts";
 import { EmptyState, ErrorState, Loading, PageHeader } from "./ui";
 
 export function BookingControl() {
@@ -37,12 +44,16 @@ export function BookingControl() {
               setBusy(true);
               setError("");
               setNotice("");
+              showLoading("กำลังบันทึกรูปแบบรับนัด");
               try {
                 setPolicy(await request("admin/booking-policy", policy));
                 setNotice("บันทึกการรับนัดแล้ว");
+                void showSuccess("บันทึกรูปแบบรับนัดแล้ว");
               } catch (e) {
                 setError((e as Error).message);
+                void showError("บันทึกรูปแบบรับนัดไม่สำเร็จ โปรดตรวจสอบข้อความในหน้า");
               } finally {
+                closeLoading();
                 setBusy(false);
               }
             }}
@@ -316,6 +327,21 @@ export function ContactRequests() {
               onSubmit={(e) => {
                 e.preventDefault();
                 const f = new FormData(e.currentTarget);
+                const nextStatus = String(f.get("status"));
+                const dataReview = String(f.get("dataReview") ?? "").trim();
+                const entitlementReview = String(f.get("entitlementReview") ?? "").trim();
+                const entitlementStatus = String(f.get("entitlementStatus"));
+                if (
+                  nextStatus === "ready_to_schedule" &&
+                  (!dataReview ||
+                    !entitlementReview ||
+                    !["verified", "unable_to_verify"].includes(entitlementStatus))
+                ) {
+                  setError(
+                    "การเปลี่ยนสถานะเป็นพร้อมนัดหมาย ต้องบันทึกผลตรวจข้อมูลและผลตรวจสิทธิ และเลือกสถานะตรวจสิทธิเป็นตรวจสอบแล้ว หรือตรวจสอบไม่ได้",
+                  );
+                  return;
+                }
                 void mutate("admin/contact-requests/status", {
                   id: r.id,
                   status: f.get("status"),
@@ -347,11 +373,7 @@ export function ContactRequests() {
                   disabled={r.status === "closed"}
                 >
                   {Object.entries(contactStatuses)
-                    .filter(
-                      ([k]) =>
-                        !["pending", "contacted", "scheduled"].includes(k) ||
-                        k === r.status,
-                    )
+                    .filter(([k]) => canReviewTransition(r.status, k))
                     .map(([v, l]) => (
                       <option key={v} value={v}>
                         {l}

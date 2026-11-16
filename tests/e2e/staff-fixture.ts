@@ -6,10 +6,10 @@ export async function syntheticStaff(role = "superadmin") {
   const url = new URL(process.env.DATABASE_URL!);
   if (
     !["localhost", "127.0.0.1"].includes(url.hostname) ||
-    url.pathname !== "/pdh_healthcheck" ||
-    process.env.SEED_DEMO !== "true"
+    url.pathname !== "/pdh_healthcheck_rc01_test" ||
+    process.env.PDH_TEST_ALLOW_SYNTHETIC_FIXTURES !== "true"
   )
-    throw Error("Synthetic localhost development database required");
+    throw Error("Synthetic fixtures require the dedicated RC01 test database");
   const db = new PrismaClient();
   const email = crypto.randomUUID() + "@browser-staff.invalid";
   const password = "Browser-only-" + crypto.randomUUID();
@@ -29,6 +29,10 @@ export async function syntheticStaff(role = "superadmin") {
     mfa: () => operatorTotp(secret).generate(),
     async cleanup(extraIds: string[] = []) {
       const ids = [user.id, ...extraIds];
+      await db.mfaRecoveryCode.deleteMany({ where: { userId: { in: ids } } });
+      await db.staffPasswordReset.deleteMany({
+        where: { userId: { in: ids } },
+      });
       await db.userInvitation.deleteMany({ where: { userId: { in: ids } } });
       await db.session.deleteMany({ where: { userId: { in: ids } } });
       await db.audit.deleteMany({

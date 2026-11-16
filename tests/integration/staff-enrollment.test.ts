@@ -27,9 +27,16 @@ describe.skipIf(!enabled)(
     const secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
     const ids: string[] = [];
     let passwordHash: string;
+    let fakeNow = Date.now();
+    const proofTimes = new Map<string, number>();
     let manager: { id: string; token: string; email: string };
     let superadmin: { id: string; token: string; email: string };
-    const proof = () => ({ password, mfa: operatorTotp(secret).generate() });
+    const proof = () => {
+      fakeNow = Math.max(fakeNow + 30000, Date.now() + 30000);
+      const mfa = operatorTotp(secret).generate({ timestamp: fakeNow });
+      proofTimes.set(mfa, fakeNow);
+      return { password, mfa };
+    };
     async function user(role = "registration", enrolled = true) {
       const row = await db.user.create({
         data: {
@@ -53,17 +60,26 @@ describe.skipIf(!enabled)(
     }
     async function call(resource: string, cookie = "", data?: unknown) {
       context.token = cookie;
-      const response = await api(
-        new Request("http://localhost:3036/api/v1/" + resource, {
-          method: data === undefined ? "GET" : "POST",
-          headers: {
-            Origin: "http://localhost:3036",
-            "Content-Type": "application/json",
-          },
-          body: data === undefined ? undefined : JSON.stringify(data),
-        }),
-        resource.split("/"),
-      );
+      const payload = data as { verification?: { mfa?: string }; mfa?: string } | undefined;
+      const submittedMfa = payload?.verification?.mfa ?? payload?.mfa;
+      const proofTime = submittedMfa ? proofTimes.get(submittedMfa) : undefined;
+      if (proofTime) vi.spyOn(Date, "now").mockReturnValue(proofTime);
+      let response: Response;
+      try {
+        response = await api(
+          new Request("http://localhost:3036/api/v1/" + resource, {
+            method: data === undefined ? "GET" : "POST",
+            headers: {
+              Origin: "https://localhost:3036",
+              "Content-Type": "application/json",
+            },
+            body: data === undefined ? undefined : JSON.stringify(data),
+          }),
+          resource.split("/"),
+        );
+      } finally {
+        if (proofTime) vi.restoreAllMocks();
+      }
       return {
         status: response.status,
         body: await response.json(),
@@ -94,12 +110,16 @@ describe.skipIf(!enabled)(
       )
         throw new Error("Isolated test database required");
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("APP_URL", "http://localhost:3036");
+      vi.stubEnv("APP_URL", "https://localhost:3036");
       passwordHash = await bcrypt.hash(password, 12);
       manager = await user("manager");
       superadmin = await user("superadmin");
     });
     afterAll(async () => {
+      await db.mfaRecoveryCode.deleteMany({ where: { userId: { in: ids } } });
+      await db.staffPasswordReset.deleteMany({
+        where: { userId: { in: ids } },
+      });
       await db.userInvitation.deleteMany({ where: { userId: { in: ids } } });
       await db.session.deleteMany({ where: { userId: { in: ids } } });
       await db.audit.deleteMany({
@@ -110,6 +130,7 @@ describe.skipIf(!enabled)(
       });
       await db.user.deleteMany({ where: { id: { in: ids } } });
       vi.unstubAllEnvs();
+      vi.restoreAllMocks();
       await db.$disconnect();
     });
     it("restricts user management and Superadmin edits to authorized actors", async () => {
@@ -293,6 +314,7 @@ describe.skipIf(!enabled)(
           await call("admin/users/action", manager.token, {
             ...action,
             id: manager.id,
+            verification: proof(),
           })
         ).status,
       ).toBe(409);

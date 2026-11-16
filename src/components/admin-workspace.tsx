@@ -1,9 +1,19 @@
 "use client";
+import { StaffReschedule } from "./staff-reschedule";
+import { ManagedRecords } from "./managed-records";
 import { ResponsiveTable } from "./responsive-table";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Plus, Upload } from "lucide-react";
 import { request, money, dateTime, type PublicService } from "@/lib/client";
+import {
+  closeLoading,
+  showConfirm,
+  showError,
+  showLoading,
+  showSuccess,
+  showTextPrompt,
+} from "@/lib/alerts";
 import { EmptyState, ErrorState, Loading, PageHeader, StatusBadge } from "./ui";
 type Row = Record<string, unknown>;
 const titles: Record<string, [string, string]> = {
@@ -52,6 +62,16 @@ export function AdminWorkspace({ section }: { section: string }) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [editingPackage, setEditingPackage] = useState<Row | null>(null);
+  const [capabilities, setCapabilities] = useState<Record<string, boolean>>({});
+  const [packagePage, setPackagePage] = useState(1),
+    [packageTotal, setPackageTotal] = useState(0),
+    [packageQuery, setPackageQuery] = useState("");
+  useEffect(() => {
+    request<Record<string, boolean>>("admin/capabilities")
+      .then(setCapabilities)
+      .catch(() => setCapabilities({}));
+  }, []);
   const [serviceSearch, setServiceSearch] = useState("");
   const serviceQuery = useQuery({
     queryKey: ["package-catalog", serviceSearch],
@@ -59,7 +79,7 @@ export function AdminWorkspace({ section }: { section: string }) {
       request<PublicService[]>(
         "services?q=" + encodeURIComponent(serviceSearch),
       ),
-    enabled: section === "packages",
+    enabled: section === "packages" && capabilities["packages:write"] === true,
     retry: false,
   });
   const services = serviceQuery.data ?? [];
@@ -69,15 +89,29 @@ export function AdminWorkspace({ section }: { section: string }) {
   async function load() {
     setError("");
     try {
-      const records = await request<Row[]>("admin/" + endpoints[section]);
-      setRows(records);
+      if (section === "packages") {
+        const result = await request<{
+          rows: Row[];
+          total: number;
+          capabilities: Record<string, boolean>;
+        }>(
+          "admin/manage/packages?" +
+            new URLSearchParams({ page: String(packagePage), q: packageQuery }),
+        );
+        setRows(result.rows);
+        setPackageTotal(result.total);
+        setCapabilities((old) => ({ ...old, ...result.capabilities }));
+      } else {
+        const records = await request<Row[]>("admin/" + endpoints[section]);
+        setRows(records);
+      }
     } catch (e) {
       setError((e as Error).message);
     }
   }
   useEffect(() => {
     load();
-  }, [section]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [section, packagePage, packageQuery]); // eslint-disable-line react-hooks/exhaustive-deps
   async function mutate(
     fn: () => Promise<unknown>,
     success = "บันทึกข้อมูลแล้ว",
@@ -85,20 +119,27 @@ export function AdminWorkspace({ section }: { section: string }) {
     setError("");
     setNotice("");
     setBusy(true);
+    showLoading("กำลังบันทึกข้อมูล");
     try {
       await fn();
       setNotice(success);
       await load();
+      void showSuccess(success);
     } catch (e) {
       setError((e as Error).message);
+      void showError("บันทึกข้อมูลไม่สำเร็จ โปรดตรวจสอบข้อความในหน้า");
     } finally {
+      closeLoading();
       setBusy(false);
     }
   }
   if (!title) return <EmptyState />;
-  const visible = rows?.filter((r) =>
-    JSON.stringify(r).toLowerCase().includes(search.toLowerCase()),
-  );
+  const visible =
+    section === "packages"
+      ? rows
+      : rows?.filter((r) =>
+          JSON.stringify(r).toLowerCase().includes(search.toLowerCase()),
+        );
   return (
     <>
       <PageHeader
@@ -108,19 +149,28 @@ export function AdminWorkspace({ section }: { section: string }) {
       >
         {["packages", "appointments", "organizations", "lab-pricing"].includes(
           section,
-        ) && (
-          <button
-            className="button small"
-            onClick={() => setShowForm(!showForm)}
-          >
-            <Plus size={16} />
-            {showForm
-              ? "ปิดแบบฟอร์ม"
-              : section === "lab-pricing"
-                ? "นำเข้าราคา"
-                : "เพิ่มข้อมูล"}
-          </button>
-        )}
+        ) &&
+          (section !== "packages" || capabilities["packages:write"]) &&
+          (section !== "lab-pricing" || capabilities["imports:write"]) &&
+          (section !== "appointments" || capabilities["calendar:write"]) && (
+            <button
+              className="button small"
+              onClick={() => {
+                if (!showForm) {
+                  setEditingPackage(null);
+                  setSelectedServices([]);
+                }
+                setShowForm(!showForm);
+              }}
+            >
+              <Plus size={16} />
+              {showForm
+                ? "ปิดแบบฟอร์ม"
+                : section === "lab-pricing"
+                  ? "นำเข้าราคา"
+                  : "เพิ่มข้อมูล"}
+            </button>
+          )}
       </PageHeader>
       {error && <ErrorState message={error} />}{" "}
       {notice && (
@@ -142,7 +192,11 @@ export function AdminWorkspace({ section }: { section: string }) {
               <h2>เพิ่มองค์กร (ฉบับร่าง)</h2>
               <label className="field">
                 ชื่อองค์กร
-                <input name="name" required maxLength={255} />
+                <input
+                  name="name"
+                  required
+                  maxLength={255}
+                />
               </label>
               <label className="field">
                 ข้อมูลผู้ประสานงาน
@@ -160,12 +214,15 @@ export function AdminWorkspace({ section }: { section: string }) {
               onSubmit={(e) => {
                 e.preventDefault();
                 const f = new FormData(e.currentTarget);
+                const dailyCapVal = f.get("dailyCapacity");
                 mutate(() =>
                   request("admin/slots", {
                     day: f.get("day"),
                     time: f.get("time"),
                     capacity: Number(f.get("capacity")),
-                    dailyCapacity: Number(f.get("dailyCapacity")),
+                    ...(dailyCapVal && Number(dailyCapVal) > 0
+                      ? { dailyCapacity: Number(dailyCapVal) }
+                      : {}),
                   }),
                 );
               }}
@@ -196,19 +253,19 @@ export function AdminWorkspace({ section }: { section: string }) {
                   min={1}
                   max={2000}
                   name="dailyCapacity"
-                  required
                 />
               </label>
               <p className="full">
-                ช่วงเวลายาว 1 ชั่วโมง ความจุรายวันต้องตรงกับค่าที่กำหนดไว้เดิม
+                ช่วงเวลายาว 1 ชั่วโมง ความจุรายวันเว้นว่างได้หากใช้วันเดิม (หากระบุต้องตรงกับค่าเดิม)
               </p>
               <button className="button" disabled={busy}>
                 บันทึกช่วงเวลา
               </button>
             </form>
           )}
-          {section === "packages" && (
+          {section === "packages" && capabilities["packages:write"] && (
             <form
+              key={String(editingPackage?.id ?? "new-package")}
               className="form-grid"
               onSubmit={(e) => {
                 e.preventDefault();
@@ -227,6 +284,9 @@ export function AdminWorkspace({ section }: { section: string }) {
                   () =>
                     request("admin/packages", {
                       ...Object.fromEntries(f),
+                      ...(editingPackage
+                        ? { sourceId: editingPackage.id }
+                        : {}),
                       minAge: Number(f.get("minAge")),
                       maxAge: Number(f.get("maxAge")),
                       serviceIds: selectedServices,
@@ -238,25 +298,48 @@ export function AdminWorkspace({ section }: { section: string }) {
               <h2 className="full">สร้างแพ็กเกจฉบับร่าง / เวอร์ชันใหม่</h2>
               <label className="field">
                 รหัสตระกูลแพ็กเกจ
-                <input name="key" required maxLength={80} />
+                <input
+                  name="key"
+                  defaultValue={String(editingPackage?.key ?? "")}
+                  readOnly={!!editingPackage}
+                  required
+                  maxLength={80}
+                />
                 <small>ใช้รหัสเดิมเพื่อสร้างเวอร์ชันถัดไป</small>
               </label>
               <label className="field">
                 ชื่อแพ็กเกจ
-                <input name="name" required maxLength={255} />
+                <input
+                  name="name"
+                  defaultValue={String(editingPackage?.name ?? "")}
+                  required
+                  maxLength={255}
+                />
               </label>
               <label className="field full">
                 รายละเอียด
-                <textarea name="description" required maxLength={3000} />
+                <textarea
+                  aria-label="รายละเอียด"
+                  name="description"
+                  defaultValue={String(editingPackage?.description ?? "")}
+                  required
+                  maxLength={3000}
+                />
               </label>
               <label className="field">
                 กลุ่มเป้าหมาย
-                <input name="audience" required maxLength={255} />
+                <input
+                  name="audience"
+                  defaultValue={String(editingPackage?.audience ?? "")}
+                  required
+                  maxLength={255}
+                />
               </label>
               <label className="field">
                 ราคาเหมาจ่าย (บาท)
                 <input
                   name="fixedPrice"
+                  defaultValue={String(editingPackage?.fixedPrice ?? "")}
                   inputMode="decimal"
                   pattern="[0-9]+(\.[0-9]{1,2})?"
                   required
@@ -269,7 +352,7 @@ export function AdminWorkspace({ section }: { section: string }) {
                   type="number"
                   min={0}
                   max={130}
-                  defaultValue={0}
+                  defaultValue={Number(editingPackage?.minAge ?? 0)}
                   required
                 />
               </label>
@@ -280,17 +363,36 @@ export function AdminWorkspace({ section }: { section: string }) {
                   type="number"
                   min={0}
                   max={130}
-                  defaultValue={120}
+                  defaultValue={Number(editingPackage?.maxAge ?? 120)}
                   required
                 />
               </label>
               <label className="field">
                 วันที่มีผล
-                <input name="effectiveFrom" type="date" required />
+                <input
+                  name="effectiveFrom"
+                  type="date"
+                  defaultValue={
+                    editingPackage?.effectiveFrom
+                      ? new Intl.DateTimeFormat("en-CA", {
+                          timeZone: "Asia/Bangkok",
+                        }).format(
+                          new Date(String(editingPackage.effectiveFrom)),
+                        )
+                      : ""
+                  }
+                  required
+                />
               </label>
               <label className="field full">
                 การเตรียมตัว
-                <textarea name="preparation" required maxLength={3000} />
+                <textarea
+                  aria-label="การเตรียมตัว"
+                  name="preparation"
+                  defaultValue={String(editingPackage?.preparation ?? "")}
+                  required
+                  maxLength={3000}
+                />
               </label>
               <fieldset
                 className="full package-services"
@@ -499,6 +601,37 @@ export function AdminWorkspace({ section }: { section: string }) {
           </button>
         </div>
       )}
+      {section === "packages" && (
+        <div className="actions">
+          <button
+            className="button secondary"
+            disabled={packagePage <= 1}
+            onClick={() => setPackagePage((p) => p - 1)}
+          >
+            ก่อนหน้า
+          </button>
+          <span>
+            หน้า {packagePage} · {packageTotal} รายการ
+          </span>
+          <button
+            className="button secondary"
+            disabled={packagePage * 25 >= packageTotal}
+            onClick={() => setPackagePage((p) => p + 1)}
+          >
+            ถัดไป
+          </button>
+          <button
+            className="button secondary"
+            onClick={() => {
+              setPackageQuery(search);
+              setPackagePage(1);
+            }}
+          >
+            ค้นหาแพ็กเกจทั้งหมด
+          </button>
+        </div>
+      )}
+      {section === "lab-pricing" && <ManagedRecords kind="services" />}
       <section className="card">
         <div className="card-heading">
           <h2>{title[0]}</h2>
@@ -506,6 +639,12 @@ export function AdminWorkspace({ section }: { section: string }) {
             aria-label="ค้นหาในรายการ"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (section === "packages" && e.key === "Enter") {
+                setPackageQuery(search);
+                setPackagePage(1);
+              }
+            }}
             placeholder="ค้นหา…"
             style={{ maxWidth: 230 }}
           />
@@ -575,18 +714,39 @@ export function AdminWorkspace({ section }: { section: string }) {
                     </tbody>
                   </ResponsiveTable>
                 </div>
-                {r.status === "staged" && (
+                {["staged", "invalid"].includes(String(r.status)) &&
+                  (capabilities["imports:write"] ||
+                    capabilities["imports:approve"]) && (
+                    <button
+                      className="button secondary"
+                      onClick={async () => {
+                        const reason = await showTextPrompt(
+                          "ยกเลิกชุดนำเข้า",
+                          "ระบุเหตุผลที่ยกเลิกชุดนำเข้า",
+                          "ยกเลิกชุดนำเข้า",
+                        );
+                        if (reason)
+                          await mutate(() =>
+                            request("admin/imports/cancel", { id: r.id, reason }),
+                          );
+                      }}
+                    >
+                      ยกเลิกชุดนำเข้า
+                    </button>
+                  )}
+                {r.status === "staged" && capabilities["imports:approve"] && (
                   <button
                     className="button small"
                     style={{ marginTop: 20 }}
                     disabled={busy}
-                    onClick={() => {
+                    onClick={async () => {
                       if (
-                        window.confirm(
-                          "ยืนยันอนุมัติและเผยแพร่ราคา? ต้องตรวจสอบรหัส ชื่อ และวันที่มีผลแล้ว",
+                        await showConfirm(
+                          "ตรวจสอบรหัส ชื่อ และวันที่มีผลของราคาแล้วหรือไม่",
+                          "อนุมัติและเผยแพร่ราคา",
                         )
                       )
-                        mutate(
+                        await mutate(
                           () => request("admin/imports/approve", { id: r.id }),
                           "อนุมัติเวอร์ชันราคาแล้ว",
                         );
@@ -670,6 +830,14 @@ export function AdminWorkspace({ section }: { section: string }) {
                         </td>
                         <td>
                           <div className="actions">
+                            {r.status === "confirmed" &&
+                              capabilities["bookings:write"] && (
+                                <StaffReschedule
+                                  id={String(r.id)}
+                                  reference={String(r.reference)}
+                                  onSaved={load}
+                                />
+                              )}
                             {(r.status === "confirmed"
                               ? ["checked_in", "no_show", "cancelled"]
                               : r.status === "checked_in"
@@ -682,13 +850,25 @@ export function AdminWorkspace({ section }: { section: string }) {
                                 className="button secondary small"
                                 key={status}
                                 disabled={busy}
-                                onClick={() => {
+                                onClick={async () => {
                                   const reason =
                                     status === "cancelled"
-                                      ? window.prompt("เหตุผลการยกเลิก")
+                                      ? await showTextPrompt(
+                                          "ยกเลิกนัดหมาย",
+                                          "ระบุเหตุผลการยกเลิก",
+                                        )
                                       : undefined;
-                                  if (status === "cancelled" && !reason) return;
-                                  mutate(() =>
+                                  if (
+                                    status === "cancelled" &&
+                                    (!reason ||
+                                      !(await showConfirm(
+                                        "ยืนยันยกเลิกนัดหมาย รายการนี้จะถูกบันทึกในประวัติ",
+                                        "ยืนยันยกเลิกนัด",
+                                        "ยกเลิกนัด",
+                                      )))
+                                  )
+                                    return;
+                                  await mutate(() =>
                                     request("admin/bookings/status", {
                                       id: r.id,
                                       status,
@@ -723,43 +903,71 @@ export function AdminWorkspace({ section }: { section: string }) {
                           <StatusBadge status={String(r.status)} />
                         </td>
                         <td>
-                          {r.status === "draft" && (
+                          {capabilities["packages:write"] && (
                             <button
                               className="button secondary small"
-                              disabled={busy}
                               onClick={() => {
-                                if (
-                                  window.confirm(
-                                    "ยืนยันการอนุมัติเงื่อนไข ราคา และรายการตรวจสำหรับเผยแพร่?",
-                                  )
-                                )
-                                  mutate(() =>
-                                    request("admin/packages/status", {
-                                      id: r.id,
-                                      status: "published",
-                                    }),
-                                  );
+                                setEditingPackage(r);
+                                setSelectedServices(
+                                  (r.items as { serviceId: string }[]).map(
+                                    (i) => i.serviceId,
+                                  ),
+                                );
+                                setShowForm(true);
+                                window.scrollTo({ top: 0, behavior: "smooth" });
                               }}
                             >
-                              อนุมัติเผยแพร่
+                              แก้ไขโดยสร้างรุ่นใหม่
                             </button>
                           )}
-                          {r.status !== "archived" && (
-                            <button
-                              className="button ghost small"
-                              disabled={busy}
-                              onClick={() =>
-                                mutate(() =>
-                                  request("admin/packages/status", {
-                                    id: r.id,
-                                    status: "archived",
-                                  }),
-                                )
-                              }
-                            >
-                              เก็บถาวร
-                            </button>
-                          )}
+                          {r.status === "draft" &&
+                            capabilities["packages:approve"] && (
+                              <button
+                                className="button secondary small"
+                                disabled={busy}
+                                onClick={async () => {
+                                  if (
+                                    await showConfirm(
+                                      "ยืนยันว่าได้ตรวจเงื่อนไข ราคา และรายการตรวจก่อนเผยแพร่แล้ว",
+                                      "อนุมัติเผยแพร่แพ็กเกจ",
+                                    )
+                                  )
+                                    await mutate(() =>
+                                      request("admin/packages/status", {
+                                        id: r.id,
+                                        status: "published",
+                                      }),
+                                    );
+                                }}
+                              >
+                                อนุมัติเผยแพร่
+                              </button>
+                            )}
+                          {r.status !== "archived" &&
+                            capabilities["packages:write"] && (
+                              <button
+                                className="button ghost small"
+                                disabled={busy}
+                                onClick={async () => {
+                                  if (
+                                    !(await showConfirm(
+                                      "เก็บแพ็กเกจนี้เข้าคลังและหยุดแสดงเป็นรายการที่เปิดใช้งานหรือไม่",
+                                      "เก็บแพ็กเกจเข้าคลัง",
+                                      "เก็บเข้าคลัง",
+                                    ))
+                                  )
+                                    return;
+                                  await mutate(() =>
+                                    request("admin/packages/status", {
+                                      id: r.id,
+                                      status: "archived",
+                                    }),
+                                  );
+                                }}
+                              >
+                                เก็บถาวร
+                              </button>
+                            )}
                         </td>
                       </>
                     ) : section === "organizations" ? (

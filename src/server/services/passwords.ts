@@ -1,3 +1,5 @@
+import { staffPassword } from "./enrollment";
+import { staffNotice } from "./staff-email";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -6,13 +8,7 @@ import { AppError, audit } from "@/lib/security";
 export const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1).max(128),
-    newPassword: z
-      .string()
-      .min(14, "รหัสผ่านใหม่ต้องมีอย่างน้อย 14 ตัวอักษร")
-      .refine(
-        (value) => Buffer.byteLength(value, "utf8") <= 72,
-        "รหัสผ่านใหม่ยาวเกิน 72 ไบต์",
-      ),
+    newPassword: staffPassword,
     confirmPassword: z.string(),
   })
   .superRefine((input, ctx) => {
@@ -47,15 +43,30 @@ export async function changePassword(
       const liveSession = await tx.session.findUnique({
         where: { id: sessionId },
       });
-      if (!user?.active || !liveSession || liveSession.stage !== 'full' || user.activationRequired || user.mustChangePassword || liveSession.expiresAt <= new Date())
+      if (
+        !user?.active ||
+        !liveSession ||
+        liveSession.stage !== "full" ||
+        user.activationRequired ||
+        user.mustChangePassword ||
+        liveSession.expiresAt <= new Date()
+      )
         throw new AppError(401, "กรุณาเข้าสู่ระบบใหม่");
       if (!(await bcrypt.compare(input.currentPassword, user.passwordHash)))
         throw new AppError(422, "รหัสผ่านเดิมไม่ถูกต้อง");
       await tx.user.update({ where: { id: user.id }, data: { passwordHash } });
+      await tx.staffPasswordReset.updateMany({
+        where: { userId: user.id, consumedAt: null },
+        data: { consumedAt: new Date() },
+      });
       await tx.session.deleteMany({ where: { userId: user.id } });
       await audit(tx, user.id, "auth.password_changed", user.id);
     },
     { isolationLevel: "ReadCommitted", timeout: 15000 },
   );
+  const user = await db.user.findUniqueOrThrow({
+    where: { id: identity.userId },
+  });
+  await staffNotice(user, "password_changed", user.id + ":" + Date.now());
   return { ok: true };
 }

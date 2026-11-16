@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "sweetalert2/dist/sweetalert2.min.css";
 import { Providers } from "@/components/providers";
 export const viewport: Viewport = {
   width: "device-width",

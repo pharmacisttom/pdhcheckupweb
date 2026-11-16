@@ -1,0 +1,6 @@
+# Privacy controls and approval gates
+No fabricated legal policy is preloaded. Manager saves real noticeVersion/noticeText/retentionDays while disabled. Privacy-authorized staff reviews exact stored text+days fingerprint and approves. Any change revokes approval. Enable only after approval plus CHAT_ENABLED env gate. Widget collects no chat message before acknowledgement.
+
+Session ID owns conversation; reference/phone alone cannot retrieve. Expired/different device has no automatic recovery or insecure reference lookup; start fresh. Messages, private notes and feedback comments encrypted with existing DATA_ENCRYPTION_KEY. No chat user text in localStorage or URL; React memory only. Network provider receives only approved public KB candidates, never user history.
+
+Retention CLI redacts <=100 expired conversations per run, overwrites encrypted bodies, clears comments, removes owner linkage and closes. Audit/aggregate metadata retained separately; backups must follow approved hospital schedule. Logical SQL redaction cannot prove physical media erasure. Staff-privacy redaction uses existing audited permission. No conversation training or automatic KB import. DPO must assess lawful basis, access requests and external processing before use.
