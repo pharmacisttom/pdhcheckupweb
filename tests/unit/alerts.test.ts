@@ -78,6 +78,9 @@ describe("shared SweetAlert2 helpers", () => {
     options.didOpen();
     expect(mocks.showLoading).toHaveBeenCalledOnce();
     mocks.isVisible.mockReturnValue(true);
+    mocks.getPopup.mockReturnValue({ classList: { contains: (name: string) => name === "pdh-loading-popup" } });
+    closeLoading();
+    expect(mocks.close).toHaveBeenCalledOnce();
     mocks.getPopup.mockReturnValue({ classList: { contains: () => false } });
     closeLoading();
     expect(mocks.close).toHaveBeenCalledOnce();
