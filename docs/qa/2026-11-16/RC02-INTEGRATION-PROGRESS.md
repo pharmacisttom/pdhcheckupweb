@@ -21,16 +21,17 @@ Status: DEVELOPMENT / Production NO-GO. No Production database writes or deploym
 
 - GitHub Actions run https://github.com/pharmacisttom/pdhcheckupweb/actions/runs/43845715833: test-database identity/grants/migrations PASS, registration-recovery persistence integration 2/2 PASS, Typecheck PASS, Lint PASS, Unit tests 178 PASS, DB-free guard harness PASS, Production-mode build PASS.
 - The same run's browser smoke FAILED. No full E2E PASS claim.
-- The next diagnostic run https://github.com/pharmacisttom/pdhcheckupweb/actions/runs/43847062784 confirmed HTTP 403 CSRF: Browser sent `Origin: http://localhost:3036` while the managed API test server requires `APP_URL=http://localhost:3037`.
-- Root cause: the CI smoke step invoked Playwright without the Admin-specific config, causing it to fall back to the generic `playwright.config.ts` port 3036. Updated the CI smoke command to the existing guarded `test:admin-crud:e2e` harness on port 3037; this change is not yet supported by a completed CI result at the time of this report.
+- Diagnostic run https://github.com/pharmacisttom/pdhcheckupweb/actions/runs/43847062784 confirmed HTTP 403 CSRF caused by mismatched Browser Origin 3036 versus test API APP_URL 3037; CSRF enforcement was preserved.
+- Corrected the CI smoke step to use the guarded Admin E2E harness on port 3037; validated request and database state for organization deactivation and slot closure.
+- **Full CI PASS (source commit `2f4922247da2bdee8a211c47cc2e2e4bf82f2d8d`):** https://github.com/pharmacisttom/pdhcheckupweb/actions/runs/43850310860 — dedicated test DB identity/grants, exactly 14 completed migrations, registration recovery persistence integration **2/2 PASS**, Typecheck PASS, Lint PASS, Unit **178/178 PASS**, Guard harness PASS, production-mode Build PASS, critical Radix/SweetAlert Browser Smoke **1/1 PASS**, full Admin/Mobile Browser E2E **15/15 PASS** with clean exit. All database fixtures used disposable isolated test database, not Production.
 
 ## Outstanding release gates
 
-1. Obtain a clean, completed browser smoke and full Admin/Mobile E2E run on the exact integration HEAD, including a non-zero-exit fail gate.
-2. Demonstrate actual persisted CRUD after reload, recovery across browser/session, mobile responsive 320/390/430/1440, and accessible SweetAlert success/error/confirm.
-3. Verify the standalone integration build against isolated RC01 test only; configure approved real packages, prices and future slots under authorized UAT before a patient booking pilot.
-4. Define and test how recovered registrations behave when OTP delivery is unavailable in Production (currently no self-service cross-device recovery).
-5. Reconcile PR changes to the intended RC02 baseline and review release/rollback data preservation. Production remains NO-GO until all gates pass.
+1. **Development/CI integration gates now passed** on the cited code commit. Retest if code changes before merge or release.
+2. **Production data and clinical content remain unapproved:** import only real verified Services/Prices, reviewer-approved Packages/Questionnaire and future appointment Slots. Synthetic UAT catalog, prices and slots are prohibited in Production.
+3. **Production SMS OTP provider remains disabled or unverified:** cross-device self-service recovery is unavailable when disabled. Exercise the real provider, identity/rate limits and manual staff fallback before public pilot.
+4. Complete production-like TEST/UAT acceptance, including real-browser cross-device OTP recovery, server restart, retention/policy decisions, role/PDPA review and read-only reconciliation of the existing Production Registration rows.
+5. Review exact PR diff, data backup/restore rehearsal and rollback plan. Obtain explicit release approval. Production remains NO-GO until these non-CI gates pass.
 
 ## Safety boundary
 
