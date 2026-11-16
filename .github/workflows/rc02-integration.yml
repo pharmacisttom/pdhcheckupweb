@@ -1,0 +1,111 @@
+name: RC02 Integration Gates (isolated test only)
+
+on:
+  push:
+    branches:
+      - feature/rc02-integrated-registration-recovery
+  pull_request:
+    branches:
+      - feature/rc02-mobile-sweetalert
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc02-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Static, persistence and browser gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: "true"
+      NODE_ENV: test
+      APP_URL: http://localhost:3037
+      DATABASE_URL: mysql://pdh_test:RC02SyntheticTestOnly_9@127.0.0.1:3306/pdh_healthcheck_rc01_test
+      RUN_DB_TESTS: "true"
+      PDH_TEST_ALLOW_SYNTHETIC_FIXTURES: "true"
+      OTP_PROVIDER: test
+      EMAIL_PROVIDER: disabled
+      CHAT_ENABLED: "false"
+      CHAT_AI_ENABLED: "false"
+    steps:
+      - name: Checkout exact integration commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Create disposable test-only keys
+        run: |
+          echo "DATA_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "OTP_PEPPER=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Prisma client generation (no DB writes)
+        run: npx prisma generate
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm run test:unit
+      - name: DB-free guard harness
+        run: npm run test:harness
+      - name: Production build (ephemeral environment)
+        run: npm run build
+      - name: Start local MySQL and provision dedicated synthetic RC01 database
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo systemctl start mysql.service
+          sudo mysql <<'SQL'
+          CREATE DATABASE pdh_healthcheck_rc01_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE USER 'pdh_test'@'127.0.0.1' IDENTIFIED BY 'RC02SyntheticTestOnly_9';
+          GRANT ALL PRIVILEGES ON pdh_healthcheck_rc01_test.* TO 'pdh_test'@'127.0.0.1';
+          SQL
+      - name: Explicitly migrate ONLY disposable RC01 test database
+        run: npx prisma migrate deploy
+      - name: Verify DB identity and migration state before any fixtures
+        run: |
+          node --input-type=module <<'JS'
+          import { PrismaClient } from "@prisma/client";
+          import { verifyRc02TestDatabase } from "./scripts/test-db-guard.mjs";
+          const db = new PrismaClient();
+          try {
+            const result = await verifyRc02TestDatabase(db, process.env.DATABASE_URL);
+            console.log("RC02 ISOLATED TEST DB:", result.database, "MIGRATIONS:", result.migrations);
+          } finally {
+            await db.$disconnect();
+          }
+          JS
+      - name: Registration recovery persistence integration
+        run: npx vitest run tests/integration/registration-recovery.test.ts
+      - name: Chromium dependencies
+        run: npx playwright install --with-deps chromium
+      - name: Write disposable local test config (never Production)
+        run: |
+          printf 'DATABASE_URL=%s\n' "$DATABASE_URL" > .env
+          chmod 600 .env
+      - name: Admin and mobile browser E2E (clean exit required)
+        run: npm run test:admin-crud:e2e
+      - name: Clean up ephemeral test config
+        if: always()
+        run: rm -f .env
+      - name: Upload browser artifacts if present
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc02-e2e-${{ github.run_id }}
+          path: |
+            test-results/
+            playwright-report/
+            docs/qa/2026-11-16/rc02-*.png
+          if-no-files-found: ignore
+          retention-days: 7
