@@ -425,8 +425,13 @@ test("service metadata editor and slot lifecycle", async ({
     const body = await response.json();
     return (body.data?.rows ?? []).map((row: { id: string }) => row.id);
   }).toContain(slot.id);
-  await expect(page.locator(".managed-records article").filter({ hasText: slot.id })).toHaveCount(1);
-  d = await edit(page, slot.id);
+  // Slot cards present a localized appointment time, not an internal UUID.
+  // The API check above already verified the queried row is the expected ID.
+  const slotCards = page.locator(".managed-records article");
+  await expect(slotCards).toHaveCount(1);
+  await slotCards.getByRole("button", { name: /ดูรายละเอียด/ }).click();
+  d = page.getByRole("dialog").filter({ has: page.locator("form") });
+  await expect(d).toBeVisible();
   await d.getByLabel("ปิดช่วงเวลา", { exact: true }).check();
   await d.getByLabel("เหตุผล / บันทึกดำเนินการ").fill("Synthetic close slot");
   await save(page, true);
