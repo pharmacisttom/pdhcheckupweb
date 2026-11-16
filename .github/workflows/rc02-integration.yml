@@ -50,16 +50,6 @@ jobs:
         run: npm ci
       - name: Prisma client generation (no DB writes)
         run: npx prisma generate
-      - name: Typecheck
-        run: npm run typecheck
-      - name: Lint
-        run: npm run lint
-      - name: Unit tests
-        run: npm run test:unit
-      - name: DB-free guard harness
-        run: npm run test:harness
-      - name: Production build (ephemeral environment)
-        run: npm run build
       - name: Start local MySQL and provision dedicated synthetic RC01 database
         shell: bash
         run: |
@@ -89,6 +79,16 @@ jobs:
           JS
       - name: Registration recovery persistence integration
         run: npx vitest run tests/integration/registration-recovery.test.ts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm run test:unit
+      - name: DB-free guard harness
+        run: npm run test:harness
+      - name: Production build (ephemeral environment)
+        run: npm run build
       - name: Chromium dependencies
         run: npx playwright install --with-deps chromium
       - name: Write disposable local test config (never Production)
