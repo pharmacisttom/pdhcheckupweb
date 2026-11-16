@@ -240,6 +240,38 @@ test.afterAll(async () => {
   if (dpo) await dpo.cleanup();
   await db.$disconnect();
 });
+test("saved registration is visible to staff without being miscounted as a booking after draft expiry", async ({
+  page,
+  context,
+}) => {
+  const pendingId = (await db.registration.create({
+    data: {
+      ownerSessionId: ownerId,
+      draftEncrypted: encrypt({
+        firstName: "Synthetic",
+        lastName: "Pending",
+        phone: "0812345678",
+      }),
+      expiresAt: new Date(Date.now() - 86400000),
+    },
+  })).id;
+  try {
+    await auth(context, staff.id);
+    const response = await page.request.get(
+      "http://localhost:3037/api/v1/admin/registrations/pending",
+    );
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    const pending = body.data as { id: string; status: string }[];
+    expect(pending).toContainEqual(expect.objectContaining({
+      id: pendingId,
+      status: "registered_not_booked",
+    }));
+    expect(await db.booking.count({ where: { registrationId: pendingId } })).toBe(0);
+  } finally {
+    await db.registration.delete({ where: { id: pendingId } });
+  }
+});
 test("organization create edit disable and mobile modal", async ({
   page,
   context,
