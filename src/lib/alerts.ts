@@ -96,6 +96,7 @@ export async function showTextPrompt(
 export function showLoading(title = "กำลังบันทึกข้อมูล") {
   void Swal.fire({
     ...defaults,
+    customClass: { popup: "pdh-alert-popup pdh-loading-popup" },
     title,
     allowOutsideClick: false,
     allowEscapeKey: false,
@@ -105,7 +106,8 @@ export function showLoading(title = "กำลังบันทึกข้อ�
 }
 
 export function closeLoading() {
-  // The loading popup may be visible before didOpen activates its spinner.
-  // Close it in either state, but never dismiss an unrelated confirmation/toast.
-  if (Swal.isVisible() && !Swal.getPopup()?.classList.contains("swal2-toast")) Swal.close();
+  // Only close this helper's loading dialog. A subsequent error/confirm
+  // popup may already be visible when an async operation reaches finally.
+  if (Swal.isVisible() && Swal.getPopup()?.classList.contains("pdh-loading-popup"))
+    Swal.close();
 }
