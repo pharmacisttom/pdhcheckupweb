@@ -28,6 +28,7 @@ import {
   type IntakeReusePlan,
 } from "@/lib/intake-reuse";
 import { HealthHistoryPicker } from "./health-history-picker";
+import { RecoverRegistration } from "./recover-registration";
 import {
   healthHistoryOptions,
   validHealthSelection,
@@ -560,6 +561,7 @@ export function RegistrationWizard() {
           title={t("ข้อมูลความเป็นส่วนตัว")}
           description={t("อ่านก่อนกรอกข้อมูลส่วนตัวและสุขภาพ")}
         />
+        <RecoverRegistration onRecovered={() => window.location.reload()} />
         <section className="card">
           <h2>{t("วัตถุประสงค์และการใช้ข้อมูล")}</h2>
           <p>
@@ -1629,6 +1631,23 @@ export function RegistrationWizard() {
             <ShieldCheck />
           </div>
           <h3 style={{ marginTop: 15 }}>{t("สรุปการลงทะเบียน")}</h3>
+          {registrationId && (
+            <div className="alert" role="status" style={{ overflowWrap: "anywhere" }}>
+              <div>
+                <strong>บันทึกข้อมูลลงทะเบียนแล้ว (ยังไม่ใช่การจอง)</strong>
+                <p style={{ marginBottom: 6 }}>รหัสสำหรับเรียกคืนข้อมูลเดิม โปรดเก็บไว้ใช้คู่กับ OTP:</p>
+                <code>{registrationId}</code>
+                <button
+                  type="button"
+                  className="button secondary small"
+                  style={{ marginTop: 8 }}
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(registrationId);
+                  }}
+                >คัดลอกรหัสลงทะเบียน</button>
+              </div>
+            </div>
+          )}
           <div className="summary-line">
             <span>{t("แพ็กเกจ")}</span>
             <strong>{selected?.name ?? t("ยังไม่ได้เลือก")}</strong>
