@@ -822,6 +822,26 @@ export async function api(req: Request, path: string[]) {
             questionnaireVersion: r.questionnaireVersion,
           }
         : null;
+    } else if (method === "GET" && resource === "registrations/saved") {
+      const s = (await session())!;
+      const submitted = await db.contactRequest.findMany({
+        where: { sessionId: s.id },
+        select: { registrationId: true },
+      });
+      data = await db.registration.findMany({
+        where: {
+          ownerSessionId: s.id,
+          booking: null,
+          id: { notIn: submitted.map((r) => r.registrationId) },
+        },
+        select: {
+          id: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 20,
+      });
     } else if (method === "POST" && resource === "quotes") {
       const s = (await session())!;
       assertContactSession(s);
