@@ -320,7 +320,13 @@ test("organization create edit disable and mobile modal", async ({
   );
   await save(page);
   const creationResult = await createdResponse;
-  expect(creationResult.status(), await creationResult.text()).toBe(200);
+  const originSent = (await creationResult.request().allHeaders()).origin ?? "<absent>";
+  const requestHost = new URL(creationResult.url()).origin;
+  expect(
+    creationResult.status(),
+    JSON.stringify({ status: creationResult.status(), originSent, requestHost,
+      expectedBrowserOrigin: "http://localhost:3037", body: await creationResult.text() }),
+  ).toBe(200);
   const createdBody = await creationResult.json();
   expect(createdBody.data?.id).toBeTruthy();
   // Verify the saved row persists through a full page reload before editing.
