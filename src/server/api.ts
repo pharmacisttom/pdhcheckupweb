@@ -20,6 +20,7 @@ import {
 import { dictionaries, locales, translate } from "@/lib/i18n";
 import { deliverOtp, otpTestMode } from "./services/otp-delivery";
 import { recoverInterest } from "./services/recover-interest";
+import { recoverRegistrationDraft } from "./services/recover-registration";
 import {
   reviewInput,
   updateReview,
@@ -160,7 +161,7 @@ export async function api(req: Request, path: string[]) {
       );
     if (
       !otpRequired() &&
-      ["otp/request", "otp/verify", "contact-requests/recover"].includes(
+      ["otp/request", "otp/verify", "contact-requests/recover", "registrations/recover"].includes(
         resource,
       )
     )
@@ -781,6 +782,19 @@ export async function api(req: Request, path: string[]) {
         await audit(tx, s.id, "registration.saved", r.id);
         return { id: r.id, decisions };
       });
+    } else if (method === "POST" && resource === "registrations/recover") {
+      const s = (await session())!;
+      // Rate limit both client session and submitted reference to reduce guessing.
+      await rateLimit("registration-recover:" + s.id, 5, 900);
+      const input = await body(
+        req,
+        z.object({
+          registrationId: z.string().min(10).max(100),
+          birthdate: z.iso.date(),
+        }),
+      );
+      await rateLimit("registration-recover-ref:" + privateHash(input.registrationId), 8, 3600);
+      data = await recoverRegistrationDraft(s.id, input.registrationId, input.birthdate);
     } else if (method === "GET" && resource === "registrations/draft") {
       const s = (await session())!;
       const submitted = await db.contactRequest.findMany({
