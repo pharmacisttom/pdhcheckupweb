@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { randomUUID } from "node:crypto";
 import { AppError, audit, decrypt } from "@/lib/security";
 import type { Person } from "@/lib/domain";
 
@@ -57,6 +58,8 @@ export async function recoverRegistrationDraft(
       currentSessionId,
       "registration.draft_recovered",
       registrationId,
+      {},
+      randomUUID(),
     );
     return { recovered: true };
   });
