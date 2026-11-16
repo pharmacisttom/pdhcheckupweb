@@ -366,15 +366,20 @@ test("organization create edit disable and mobile modal", async ({
       });
   }
   await dialog.getByLabel("สถานะองค์กร").selectOption("inactive");
+  await expect(dialog.getByLabel("สถานะองค์กร")).toHaveValue("inactive");
   await dialog.getByLabel("เหตุผล / บันทึกดำเนินการ").fill("Synthetic close");
+  const deactivateResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" &&
+    new URL(response.url()).pathname.includes("/api/v1/admin/manage/organizations/"),
+    { timeout: 20000 },
+  );
   await save(page, true);
-  expect(
-    (
-      await db.organization.findFirstOrThrow({
-        where: { name: { contains: marker } },
-      })
-    ).status,
-  ).toBe("inactive");
+  const deactivated = await deactivateResponse;
+  expect(deactivated.status(), await deactivated.text()).toBe(200);
+  expect(deactivated.request().postDataJSON()).toMatchObject({ status: "inactive" });
+  await expect.poll(async () => (
+    await db.organization.findFirstOrThrow({ where: { name: { contains: marker } } })
+  ).status).toBe("inactive");
 });
 test("service metadata editor and slot lifecycle", async ({
   page,
