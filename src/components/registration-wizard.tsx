@@ -849,9 +849,35 @@ export function RegistrationWizard() {
                       <label htmlFor="identifier">{t("เลขเอกสาร")}</label>
                       <input
                         id="identifier"
-                        {...register("identifier")}
-                        maxLength={50}
+                        inputMode={documentType === "thai_id" ? "numeric" : "text"}
+                        autoComplete="off"
+                        maxLength={documentType === "thai_id" ? 13 : 50}
+                        aria-invalid={!!errors.identifier}
+                        aria-describedby={errors.identifier ? "identifier-error" : undefined}
+                        {...register("identifier", {
+                          validate: (value) => {
+                            if (documentType !== "thai_id") return true;
+                            if (!/^\\d{13}$/.test(value ?? ""))
+                              return t("กรุณากรอกเลขบัตรประชาชนให้ครบ 13 หลัก");
+                            const digits = value ?? "";
+                            if (/^(\\d)\\1{12}$/.test(digits))
+                              return t("เลขบัตรประชาชนไม่ถูกต้อง");
+                            const sum = [...digits.slice(0, 12)].reduce(
+                              (total, digit, index) => total + Number(digit) * (13 - index),
+                              0,
+                            );
+                            return (
+                              (11 - (sum % 11)) % 10 === Number(digits[12]) ||
+                              t("เลขบัตรประชาชนไม่ถูกต้อง")
+                            );
+                          },
+                        })}
                       />
+                      {errors.identifier && (
+                        <span id="identifier-error" className="field-error" role="alert">
+                          {errors.identifier.message}
+                        </span>
+                      )}
                     </div>
                   )}
                   <div className="full">
