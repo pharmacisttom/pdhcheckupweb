@@ -17,8 +17,12 @@ const result = spawnSync(
   [
     "node_modules/vitest/vitest.mjs",
     "run",
-    "tests/integration/rc03.test.ts",
-    "tests/integration/registration-recovery.test.ts",
+    ...(process.argv.includes("--all")
+      ? ["tests/integration"]
+      : [
+          "tests/integration/rc03.test.ts",
+          "tests/integration/registration-recovery.test.ts",
+        ]),
     "--maxWorkers=1",
   ],
   {

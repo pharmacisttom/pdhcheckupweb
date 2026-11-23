@@ -18,10 +18,10 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
     const contacts: string[] = [];
     async function call(path: string, input?: unknown) {
       const response = await api(
-        new Request("http://localhost:3036/api/v1/" + path, {
+        new Request("http://localhost:3037/api/v1/" + path, {
           method: input === undefined ? "GET" : "POST",
           headers: {
-            Origin: "http://localhost:3036",
+            Origin: "http://localhost:3037",
             "Content-Type": "application/json",
           },
           body: input === undefined ? undefined : JSON.stringify(input),
@@ -41,7 +41,7 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
           "Refusing database writes: explicit opt-in and isolated pdh_healthcheck_prod_restore_test required",
         );
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("APP_URL", "http://localhost:3036");
+      vi.stubEnv("APP_URL", "http://localhost:3037");
       userId = (
         await db.user.create({
           data: {

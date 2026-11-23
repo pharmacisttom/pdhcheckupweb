@@ -41,6 +41,9 @@ import {
   type HealthSelections,
 } from "@/lib/health-history";
 type FormPerson = {
+  _draftToken?: string;
+  _draftCheckpoint?: boolean;
+  _draftStep?: number;
   registrationPreferences?: {
     packageId: string;
     addonIds: string[];
@@ -149,6 +152,13 @@ export function RegistrationWizard() {
   );
   const [acknowledged, setAcknowledged] = useState(false);
   const [search, setSearch] = useState("");
+  const draftToken = useRef<string | null>(null);
+  const checkpointGeneration = useRef(0);
+  const checkpointInFlight = useRef(false);
+  const [checkpointTick, setCheckpointTick] = useState(0);
+  const checkpointSnapshot = useRef("");
+  const [draftStatus, setDraftStatus] = useState("");
+  const [draftConflict, setDraftConflict] = useState(false);
   const idempotency = useRef("");
   const busyRef = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -338,7 +348,12 @@ export function RegistrationWizard() {
               )
               .map(([id]) => id),
           );
-          reset({ ...draft.person, intakeVersion: 3 });
+          reset({
+            registrationMode: "individual",
+            ...draft.person,
+            intakeVersion: 3,
+          });
+          draftToken.current = draft.person._draftToken ?? null;
           setAnswers(draft.answers);
           setRegistrationId(draft.id);
           const preferences = draft.person.registrationPreferences;
@@ -354,6 +369,127 @@ export function RegistrationWizard() {
       })
       .catch((e) => setError(e.message));
   }, [reset]);
+  useEffect(() => {
+    if (
+      !ready ||
+      busy ||
+      !privacyRead ||
+      step > 1 ||
+      draftConflict ||
+      (otpIsRequired && !verified)
+    )
+      return;
+    const person = {
+      ...currentPerson,
+      locale,
+      registrationPreferences: {
+        packageId,
+        addonIds: addons,
+        day,
+        slotId,
+        staffAdvice,
+      },
+    };
+    delete person._draftToken;
+    delete person._draftCheckpoint;
+    delete person._draftStep;
+    if (
+      ![
+        person.firstName,
+        person.lastName,
+        person.birthdate,
+        person.phone,
+        person.identifier,
+      ].some((value) => typeof value === "string" && value.trim()) &&
+      !Object.keys(answers).length
+    )
+      return;
+    const snapshot = JSON.stringify({
+      person,
+      answers,
+      step,
+      questionnaireVersion: questionnaire?.version,
+    });
+    if (snapshot === checkpointSnapshot.current) return;
+    setDraftStatus("มีการเปลี่ยนแปลงที่ยังไม่บันทึก");
+    const timer = setTimeout(async () => {
+      if (busyRef.current || checkpointInFlight.current) return;
+      checkpointInFlight.current = true;
+      let saved = false;
+      const generation = checkpointGeneration.current;
+      setDraftStatus("กำลังบันทึกแบบร่าง…");
+      try {
+        const response = await fetch("/api/v1/registrations/draft", {
+          method: "POST",
+          signal: AbortSignal.timeout(15000),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: registrationId || undefined,
+            requestId: idempotency.current,
+            draftToken: draftToken.current,
+            person,
+            answers,
+            step,
+            questionnaireVersion: questionnaire?.version,
+            privacyAcknowledged: true,
+            noticeVersion: PRIVACY_VERSION,
+          }),
+        });
+        const result = await response.json();
+        if (generation !== checkpointGeneration.current) return;
+        if (!response.ok) {
+          if (
+            ["DRAFT_CONFLICT", "DRAFT_SUBMITTED"].includes(result.error?.code)
+          )
+            setDraftConflict(true);
+          throw new Error("CHECKPOINT_NOT_SAVED");
+        }
+        if (!result.data?.id || !result.data?.draftToken)
+          throw new Error("CHECKPOINT_NOT_SAVED");
+        draftToken.current = result.data.draftToken;
+        checkpointSnapshot.current = snapshot;
+        setRegistrationId(result.data.id);
+        setDraftStatus("บันทึกแบบร่างแล้ว");
+        saved = true;
+      } catch {
+        if (generation === checkpointGeneration.current)
+          setDraftStatus("ยังบันทึกแบบร่างไม่สำเร็จ โปรดคงหน้านี้ไว้และลองใหม่");
+      } finally {
+        checkpointInFlight.current = false;
+        if (saved) setCheckpointTick((value) => value + 1);
+      }
+    }, 1200);
+    const warn = (event: BeforeUnloadEvent) => {
+      if (snapshot !== checkpointSnapshot.current) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("beforeunload", warn);
+    };
+  }, [
+    ready,
+    busy,
+    checkpointTick,
+    privacyRead,
+    step,
+    draftConflict,
+    otpIsRequired,
+    verified,
+    currentPerson,
+    answers,
+    questionnaire,
+    locale,
+    packageId,
+    addons,
+    day,
+    slotId,
+    staffAdvice,
+    registrationId,
+  ]);
   useEffect(() => {
     heading.current?.focus();
     document
@@ -404,8 +540,11 @@ export function RegistrationWizard() {
     });
   }
   async function saveRegistration() {
+    if (draftConflict) throw new Error(t("โปรดโหลดแบบร่างล่าสุดก่อนบันทึกแบบประเมิน"));
+    checkpointGeneration.current++;
     const r = await request<{
       id: string;
+      draftToken?: string;
       decisions: {
         decision: string;
         reason: string;
@@ -449,6 +588,9 @@ export function RegistrationWizard() {
       questionnaireVersion: questionnaire?.version,
     });
     setRegistrationId(r.id);
+    draftToken.current = r.draftToken ?? null;
+    setDraftStatus("บันทึกแบบประเมินแล้ว");
+    setDraftConflict(false);
     const warnings = r.decisions.filter((d) =>
       [
         "needs_clinical_review",
@@ -499,9 +641,7 @@ export function RegistrationWizard() {
             });
             document.getElementById("q-" + q.id)?.focus();
             throw new Error(
-              t(q.label) +
-                ": " +
-                t("กรุณาเลือกข้อมูลให้ครบและตรวจรายการที่เพิ่มเอง"),
+              t(q.label) + ": " + t("กรุณาเลือกข้อมูลให้ครบและตรวจรายการที่เพิ่มเอง"),
             );
           }
         }
@@ -633,6 +773,11 @@ export function RegistrationWizard() {
           <h2>{t("วัตถุประสงค์และการใช้ข้อมูล")}</h2>
           <p>
             {t(
+              "หลังเริ่มกรอก ระบบจะบันทึกแบบร่างอัตโนมัติอย่างปลอดภัย ข้อมูลที่ยังไม่ครบจะไม่ถูกส่งเป็นคำขอหรือนัดหมาย",
+            )}
+          </p>
+          <p>
+            {t(
               "โรงพยาบาลปลวกแดงเก็บข้อมูลส่วนตัว ข้อมูลติดต่อ สิทธิการรักษา ประวัติสุขภาพและแบบประเมิน เพื่อให้เจ้าหน้าที่ตรวจข้อมูล แนะนำบริการ และติดต่อนัดหมาย โดยจำกัดการเข้าถึงตามหน้าที่และจัดเก็บเข้ารหัส",
             )}
           </p>
@@ -663,9 +808,7 @@ export function RegistrationWizard() {
       <PageHeader
         eyebrow="HEALTH CHECK REGISTRATION"
         title={t("ลงทะเบียนตรวจสุขภาพ")}
-        description={t(
-          "กรอกข้อมูลให้ครบถ้วน เพื่อเตรียมพร้อมก่อนเข้ารับบริการ",
-        )}
+        description={t("กรอกข้อมูลให้ครบถ้วน เพื่อเตรียมพร้อมก่อนเข้ารับบริการ")}
       />
       <div className="stepper" aria-label={t("ขั้นตอนลงทะเบียน")}>
         {steps.map((label, i) => (
@@ -688,21 +831,37 @@ export function RegistrationWizard() {
             {step + 1}. {t(steps[step])}
           </h2>
           {error && <ErrorState message={error} />}
+          {draftStatus.startsWith("ยังบันทึก") && !draftConflict && (
+            <button
+              type="button"
+              className="button secondary small"
+              disabled={busy}
+              onClick={() => setCheckpointTick((value) => value + 1)}
+            >
+              ลองบันทึกแบบร่างอีกครั้ง
+            </button>
+          )}
+          {draftStatus && (
+            <p role="status" aria-live="polite">
+              {t(draftStatus)}
+            </p>
+          )}
+          {draftConflict && (
+            <p role="alert">
+              {t(
+                "แบบร่างถูกเปลี่ยนหรือส่งจากอีกหน้าต่างแล้ว โปรดคัดลอกข้อความที่ยังไม่บันทึกไว้ก่อนโหลดใหม่",
+              )}
+            </p>
+          )}
           {Object.keys(errors).length > 0 && (
             <div className="alert" role="alert">
-              {t(
-                "กรุณาตรวจสอบช่องข้อมูลที่จำเป็นให้ครบถ้วน และไม่เว้นว่างเฉพาะช่องว่าง",
-              )}
+              {t("กรุณาตรวจสอบช่องข้อมูลที่จำเป็นให้ครบถ้วน และไม่เว้นว่างเฉพาะช่องว่าง")}
             </div>
           )}
           {!policy.onlineEnabled && (
             <div className="alert" role="status">
               {policy.message}
-              <p>
-                {t(
-                  "ส่งข้อมูลให้เจ้าหน้าที่ติดต่อกลับได้ โดยไม่ต้องเลือกวันและเวลา",
-                )}
-              </p>
+              <p>{t("ส่งข้อมูลให้เจ้าหน้าที่ติดต่อกลับได้ โดยไม่ต้องเลือกวันและเวลา")}</p>
             </div>
           )}
           {reviewNotice && (
@@ -727,11 +886,7 @@ export function RegistrationWizard() {
           >
             {step === 0 && (
               <>
-                <p>
-                  {t(
-                    "ข้อมูลของคุณจะถูกใช้เพื่อเตรียมบริการและการติดต่อเรื่องนัดหมาย",
-                  )}
-                </p>
+                <p>{t("ข้อมูลของคุณจะถูกใช้เพื่อเตรียมบริการและการติดต่อเรื่องนัดหมาย")}</p>
                 <div className="form-grid">
                   <fieldset className="full">
                     <legend>{t("รูปแบบการลงทะเบียน")}</legend>
@@ -876,9 +1031,7 @@ export function RegistrationWizard() {
                     </small>
                   </div>
                   <div className="field">
-                    <label htmlFor="heightCm">
-                      {t("ส่วนสูง (เซนติเมตร) *")}
-                    </label>
+                    <label htmlFor="heightCm">{t("ส่วนสูง (เซนติเมตร) *")}</label>
                     <input
                       id="heightCm"
                       type="number"
@@ -902,9 +1055,7 @@ export function RegistrationWizard() {
                     )}
                   </div>
                   <div className="field">
-                    <label htmlFor="weightKg">
-                      {t("น้ำหนัก (กิโลกรัม) *")}
-                    </label>
+                    <label htmlFor="weightKg">{t("น้ำหนัก (กิโลกรัม) *")}</label>
                     <input
                       id="weightKg"
                       type="number"
@@ -954,9 +1105,7 @@ export function RegistrationWizard() {
                     </select>
                   </div>
                   <div className="field">
-                    <label htmlFor="treatmentRight">
-                      {t("สิทธิการรักษา *")}
-                    </label>
+                    <label htmlFor="treatmentRight">{t("สิทธิการรักษา *")}</label>
                     <select
                       id="treatmentRight"
                       {...register("treatmentRight", {
@@ -968,9 +1117,7 @@ export function RegistrationWizard() {
                       <option value="universal">
                         {t("บัตรทอง / หลักประกันสุขภาพถ้วนหน้า")}
                       </option>
-                      <option value="social_security">
-                        {t("ประกันสังคม")}
-                      </option>
+                      <option value="social_security">{t("ประกันสังคม")}</option>
                       <option value="civil_servant">
                         {t("สวัสดิการข้าราชการ / รัฐวิสาหกิจ")}
                       </option>
@@ -1009,9 +1156,7 @@ export function RegistrationWizard() {
                   </div>
                   {otpIsRequired && (
                     <div className="full">
-                      {verified && (
-                        <p role="status">{t("ยืนยันเบอร์โทรแล้ว ✓")}</p>
-                      )}
+                      {verified && <p role="status">{t("ยืนยันเบอร์โทรแล้ว ✓")}</p>}
                       {verificationId && !verified && (
                         <div className="toolbar" style={{ marginTop: 12 }}>
                           <label className="field">
@@ -1057,9 +1202,7 @@ export function RegistrationWizard() {
                       <option value="none">
                         {t("ยังไม่ระบุ / แสดงในวันรับบริการ")}
                       </option>
-                      <option value="thai_id">
-                        {t("บัตรประจำตัวประชาชน")}
-                      </option>
+                      <option value="thai_id">{t("บัตรประจำตัวประชาชน")}</option>
                       <option value="passport">{t("หนังสือเดินทาง")}</option>
                     </select>
                   </div>
@@ -1118,9 +1261,7 @@ export function RegistrationWizard() {
                   {t("• คำตอบใช้ประกอบการดูแล ไม่ใช่การวินิจฉัยโรค")}
                 </p>
                 <p className="alert">
-                  {t(
-                    "กรอกประวัติครั้งเดียว ระบบใช้ข้อมูลร่วมกับแบบประเมินโดยไม่ต้องกรอกซ้ำ",
-                  )}
+                  {t("กรอกประวัติครั้งเดียว ระบบใช้ข้อมูลร่วมกับแบบประเมินโดยไม่ต้องกรอกซ้ำ")}
                 </p>
                 <fieldset className="stack">
                   <legend>{t("ประวัติสุขภาพและครอบครัว")}</legend>
@@ -1141,16 +1282,8 @@ export function RegistrationWizard() {
                         ),
                         2000,
                       ],
-                      [
-                        "currentMedication",
-                        t("ยาหรืออาหารเสริมที่ใช้อยู่"),
-                        2000,
-                      ],
-                      [
-                        "allergies",
-                        t("ประวัติแพ้ยา / อาหาร / สารอื่น ๆ"),
-                        1000,
-                      ],
+                      ["currentMedication", t("ยาหรืออาหารเสริมที่ใช้อยู่"), 2000],
+                      ["allergies", t("ประวัติแพ้ยา / อาหาร / สารอื่น ๆ"), 1000],
                     ] as const
                   ).map(([name, label, maxLength]) => (
                     <Controller
@@ -1204,12 +1337,7 @@ export function RegistrationWizard() {
                       )}
                     />
                   ))}
-                  {detailPicker(
-                    "surgeryHistory",
-                    "ประวัติการผ่าตัด",
-                    2000,
-                    true,
-                  )}
+                  {detailPicker("surgeryHistory", "ประวัติการผ่าตัด", 2000, true)}
                   <div className="field">
                     <label htmlFor="familyNcdStatus">
                       {t("ญาติสายตรงมีประวัติโรค NCD หรือไม่ *")}
@@ -1239,9 +1367,7 @@ export function RegistrationWizard() {
                   {familyNcdStatus === "yes" && (
                     <fieldset>
                       <legend>
-                        {t(
-                          "ญาติสายตรง: ระบุความสัมพันธ์และโรค ไม่ต้องระบุชื่อ",
-                        )}
+                        {t("ญาติสายตรง: ระบุความสัมพันธ์และโรค ไม่ต้องระบุชื่อ")}
                       </legend>
                       {[
                         ["mother", "มารดา"],
@@ -1304,9 +1430,7 @@ export function RegistrationWizard() {
                       ))}
                       <details>
                         <summary>
-                          {t(
-                            "รายละเอียดเดิม / รายละเอียดเพิ่มเติม (ไม่ระบุชื่อญาติ)",
-                          )}
+                          {t("รายละเอียดเดิม / รายละเอียดเพิ่มเติม (ไม่ระบุชื่อญาติ)")}
                         </summary>
                         {familyFields.map((family, i) => (
                           <div className="form-grid" key={family.id}>
@@ -1358,18 +1482,14 @@ export function RegistrationWizard() {
                                   return (
                                     !meta ||
                                     validChoices(meta, [], 500) ||
-                                    t(
-                                      "กรุณาเลือกข้อมูลให้ครบและตรวจรายการที่เพิ่มเอง",
-                                    )
+                                    t("กรุณาเลือกข้อมูลให้ครบและตรวจรายการที่เพิ่มเอง")
                                   );
                                 },
                               }}
                               render={({ field, fieldState }) => (
                                 <HealthHistoryPicker
                                   id={"family-note-" + family.id}
-                                  label={t(
-                                    "รายละเอียดโรคของญาติ (ไม่ต้องระบุชื่อ)",
-                                  )}
+                                  label={t("รายละเอียดโรคของญาติ (ไม่ต้องระบุชื่อ)")}
                                   required={false}
                                   options={[]}
                                   maxLength={500}
@@ -1425,9 +1545,7 @@ export function RegistrationWizard() {
                   {familyNcdStatus === "yes" && (
                     <details open={!!getValues("familyNcdDetails")}>
                       <summary>
-                        {t(
-                          "ข้อมูลเพิ่มเติมเกี่ยวกับประวัติครอบครัว (ไม่บังคับ)",
-                        )}
+                        {t("ข้อมูลเพิ่มเติมเกี่ยวกับประวัติครอบครัว (ไม่บังคับ)")}
                       </summary>
                       {detailPicker(
                         "familyNcdDetails",
@@ -1864,18 +1982,14 @@ export function RegistrationWizard() {
                 <div className="summary-line summary-total">
                   <span>{t("รวมประมาณการ")}</span>
                   <span>
-                    {quote
-                      ? money(quote.total)
-                      : t("รอเจ้าหน้าที่สรุปค่าใช้จ่าย")}
+                    {quote ? money(quote.total) : t("รอเจ้าหน้าที่สรุปค่าใช้จ่าย")}
                   </span>
                 </div>
                 {!contactMode && (
                   <div className="alert">
                     {t("เวลาสำรองถึง")}
                     {hold ? dateTime(hold.expiresAt, locale) : "—"}{" "}
-                    {t(
-                      "หากราคาหรือความจุเปลี่ยน ระบบจะให้ตรวจสอบใหม่ก่อนยืนยัน",
-                    )}
+                    {t("หากราคาหรือความจุเปลี่ยน ระบบจะให้ตรวจสอบใหม่ก่อนยืนยัน")}
                   </div>
                 )}
                 <h3>{t("เตรียมตัวก่อนรับบริการ")}</h3>
@@ -2000,7 +2114,7 @@ export function RegistrationWizard() {
           </p>
           <small className="muted">
             {t(
-              "ข้อมูลแบบร่างถูกเก็บหลังบันทึกแบบประเมิน โดยไม่เก็บข้อมูลสุขภาพใน localStorage",
+              "ข้อมูลแบบร่างถูกบันทึกอัตโนมัติแบบเข้ารหัสหลังเริ่มกรอก โดยไม่เก็บข้อมูลสุขภาพใน localStorage",
             )}
           </small>
         </aside>

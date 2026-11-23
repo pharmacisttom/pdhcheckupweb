@@ -29,7 +29,23 @@ async function setup(page: Page) {
       data = [{ id: "synthetic-org", name: "หน่วยงานสังเคราะห์" }];
     if (path === "booking-policy")
       data = { onlineEnabled: false, message: "Synthetic contact mode" };
-    if (path === "registrations/draft") data = saved;
+    if (path === "registrations/draft") {
+      if (req.method() === "POST") {
+        const body = req.postDataJSON();
+        const token = crypto.randomUUID();
+        saved = {
+          id: "synthetic-rc03",
+          person: {
+            ...body.person,
+            _draftCheckpoint: true,
+            _draftToken: token,
+          },
+          answers: body.answers,
+          questionnaireVersion: body.questionnaireVersion,
+        };
+        data = { id: saved.id, draftToken: token };
+      } else data = saved;
+    }
     if (path === "registrations" && req.method() === "POST") {
       const body = req.postDataJSON();
       submissions.push(body);
@@ -39,7 +55,9 @@ async function setup(page: Page) {
         answers: body.answers,
         questionnaireVersion: 1,
       };
-      data = { id: saved.id, decisions: [] };
+      const token = crypto.randomUUID();
+      saved.person._draftToken = token;
+      data = { id: saved.id, decisions: [], draftToken: token };
     }
     await route.fulfill({
       contentType: "application/json",
@@ -72,9 +90,7 @@ test("group, family checkboxes, snoring and BMI survive back/forward and saved r
   await page.setViewportSize({ width: 390, height: 844 });
   await start(page);
   await demographics(page);
-  await page
-    .getByRole("radio", { name: "หน่วยงาน / กลุ่ม", exact: true })
-    .check();
+  await page.getByRole("radio", { name: "หน่วยงาน / กลุ่ม", exact: true }).check();
   await page
     .getByLabel("หน่วยงาน *", { exact: true })
     .selectOption("synthetic-org");
@@ -118,9 +134,9 @@ test("group, family checkboxes, snoring and BMI survive back/forward and saved r
   ).toBeChecked();
   await page.getByRole("button", { name: "ย้อนกลับ" }).click();
   await expect(page.locator("#heightCm")).toHaveValue("170");
-  await expect(
-    page.getByLabel("ผู้ประสานงานหลัก *", { exact: true }),
-  ).toHaveValue("ผู้ประสานงานสังเคราะห์");
+  await expect(page.getByLabel("ผู้ประสานงานหลัก *", { exact: true })).toHaveValue(
+    "ผู้ประสานงานสังเคราะห์",
+  );
   await page.reload();
   await page
     .getByRole("button", { name: "รับทราบและเริ่มกรอกข้อมูล", exact: true })
@@ -182,4 +198,28 @@ test("age display follows Bangkok even in an American browser timezone", async (
   await expect(
     page.getByRole("status").filter({ hasText: "ตั้งแต่ 35 ปีขึ้นไป" }),
   ).toBeVisible();
+});
+
+test("unfinished demographic input is autosaved before assessment and restored after reload", async ({
+  page,
+}) => {
+  await setup(page);
+  await start(page);
+  await page.locator("#firstName").fill("สังเคราะห์ยังไม่ครบ");
+  await page.locator("#documentType").selectOption("thai_id");
+  await page.locator("#identifier").fill("12345");
+  await expect(
+    page.getByRole("status").filter({ hasText: "บันทึกแบบร่างแล้ว" }),
+  ).toBeVisible();
+  await page.reload();
+  await page
+    .getByRole("button", { name: "รับทราบและเริ่มกรอกข้อมูล", exact: true })
+    .click();
+  await expect(page.locator("#firstName")).toHaveValue("สังเคราะห์ยังไม่ครบ");
+  await expect(page.locator("#identifier")).toHaveValue("12345");
+  expect(
+    await page.evaluate(() =>
+      JSON.stringify({ ...localStorage, ...sessionStorage }),
+    ),
+  ).not.toMatch(/สังเคราะห์ยังไม่ครบ|12345/);
 });

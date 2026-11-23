@@ -15,7 +15,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "format": "prettier --write src prisma tests docs",
-    "test:db": "node scripts/test-db.mjs",
+    "test:db": "node scripts/test-rc03-integration.mjs --all",
     "test:harness": "node --test scripts/test-db-guard.test.mjs",
     "api:contract": "tsx scripts/generate-contract.ts",
     "test:unit": "vitest run tests/unit",
@@ -38,7 +38,8 @@
     "deploy:prod:prepare": "bash scripts/run-production-deploy.sh prepare",
     "deploy:prod:apply": "bash scripts/run-production-deploy.sh apply",
     "test:rc03:db": "node scripts/test-rc03-integration.mjs",
-    "test:rc03:ui": "playwright test --config playwright.rc03-ui.config.ts"
+    "test:rc03:ui": "playwright test --config playwright.rc03-ui.config.ts",
+    "test:integration": "node scripts/test-rc03-integration.mjs --all"
   },
   "keywords": [],
   "author": "",
@@ -97,6 +98,7 @@
     "deepmerge-ts": "^8.0.2",
     "exceljs": {
       "uuid": "^11.1.1"
-    }
+    },
+    "effect": "3.22.1"
   }
 }

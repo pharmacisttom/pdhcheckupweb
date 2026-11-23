@@ -9,9 +9,9 @@ describe.skipIf(!enabled)("real MySQL InnoDB capacity contention", () => {
   let dayId: string;
   const sessionIds: string[] = [];
   beforeAll(async () => {
-    if (!process.env.DATABASE_URL?.includes("pdh_healthcheck_test"))
+    if (!process.env.DATABASE_URL?.includes("pdh_healthcheck_rc01_test"))
       throw new Error(
-        "Integration tests require isolated pdh_healthcheck_test database",
+        "Integration tests require isolated pdh_healthcheck_rc01_test database",
       );
     const date = new Date(Date.now() + 90 * 86400000);
     dayId = date.toISOString().slice(0, 10);

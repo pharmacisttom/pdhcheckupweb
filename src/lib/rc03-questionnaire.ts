@@ -47,6 +47,18 @@ export function proposeRc03Questionnaire(
             label: "Do you have a history of snoring?",
             options: { yes: "Yes", no: "No", unknown: "Unknown" },
           },
+          "zh-Hans": {
+            label: "您有打鼾的情况吗？",
+            options: { yes: "有", no: "没有", unknown: "不清楚" },
+          },
+          my: {
+            label: "အိပ်နေစဉ် ဟောက်တတ်ပါသလား။",
+            options: { yes: "ရှိ", no: "မရှိ", unknown: "မသိပါ" },
+          },
+          km: {
+            label: "តើអ្នកមានប្រវត្តិគេងស្រមុកដែរឬទេ?",
+            options: { yes: "មាន", no: "គ្មាន", unknown: "មិនដឹង" },
+          },
         },
       },
     ],

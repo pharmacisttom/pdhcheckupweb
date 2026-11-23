@@ -11,6 +11,7 @@ import { db } from "../../src/lib/db";
 import { api } from "../../src/server/api";
 import { encrypt, decrypt, hash } from "../../src/lib/security";
 import { verifyRc02TestDatabase } from "../../scripts/test-db-guard.mjs";
+import { PRIVACY_VERSION } from "../../src/lib/intake";
 import { proposeRc03Questionnaire } from "../../src/lib/rc03-questionnaire";
 
 describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
@@ -22,6 +23,7 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
       stranger: "rc03-other-" + marker,
       staff: "rc03-staff-" + marker,
     };
+    const proposalIds: string[] = [];
     const sessions: string[] = [],
       registrations: string[] = [];
     let verifiedDatabase = false;
@@ -124,10 +126,17 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
         await db.registration.deleteMany({
           where: { id: { in: registrations } },
         });
+      if (proposalIds.length)
+        await db.questionnaire.deleteMany({
+          where: { id: { in: proposalIds } },
+        });
       if (version) await db.questionnaire.deleteMany({ where: { version } });
       if (organizationId)
         await db.organization.deleteMany({ where: { id: organizationId } });
       if (sessions.length) {
+        await db.privacyRecord.deleteMany({
+          where: { sessionId: { in: sessions } },
+        });
         await db.rateLimit.deleteMany({
           where: { OR: sessions.map((id) => ({ key: { contains: id } })) },
         });
@@ -318,6 +327,141 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
           },
         }),
       ).toBe(1);
+    });
+    it("persists unfinished encrypted checkpoints, fences stale writes and blocks submission until completion", async () => {
+      context.token = tokens.owner;
+      const input = {
+        requestId: crypto.randomUUID(),
+        person: {
+          ...person,
+          heightCm: null,
+          weightKg: null,
+          identifier: "12345",
+        },
+        answers: { snoring_history: "unknown" },
+        questionnaireVersion: version,
+        step: 0,
+        privacyAcknowledged: true,
+        noticeVersion: PRIVACY_VERSION,
+      };
+      expect(
+        (
+          await call("registrations/draft", {
+            ...input,
+            privacyAcknowledged: false,
+          })
+        ).status,
+      ).toBe(422);
+      const first = await call("registrations/draft", input);
+      expect(first.status).toBe(200);
+      const id = first.body.data.id;
+      registrations.push(id);
+      const persisted = await db.registration.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(persisted.draftEncrypted).not.toContain("Synthetic");
+      expect(decrypt(persisted.draftEncrypted)).toMatchObject({
+        _draftCheckpoint: true,
+        identifier: "12345",
+        heightCm: null,
+      });
+      const denied = await call("contact-requests", {
+        registrationId: id,
+        privacyAcknowledged: true,
+        noticeVersion: PRIVACY_VERSION,
+      });
+      expect(denied.status).toBe(422);
+      expect(denied.body.error.code).toBe("DRAFT_INCOMPLETE");
+      expect(
+        (
+          await call("registrations/draft", {
+            ...input,
+            id,
+            person: { firstName: "stale" },
+          })
+        ).status,
+      ).toBe(409);
+      context.token = tokens.stranger;
+      expect(
+        (
+          await call("registrations/draft", {
+            ...input,
+            id,
+            draftToken: first.body.data.draftToken,
+          })
+        ).status,
+      ).toBe(404);
+      expect(
+        (
+          await call("registrations/recover", {
+            registrationId: id,
+            birthdate: person.birthdate,
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (await call("registrations/draft")).body.data.person,
+      ).toMatchObject({ firstName: person.firstName, _draftCheckpoint: true });
+      const completed = await call("registrations", {
+        id,
+        person,
+        answers: input.answers,
+        questionnaireVersion: version,
+      });
+      expect(completed.status).toBe(200);
+      expect(
+        (
+          await call("registrations/draft", {
+            ...input,
+            id,
+            draftToken: first.body.data.draftToken,
+          })
+        ).status,
+      ).toBe(409);
+      const final = await db.registration.findUniqueOrThrow({ where: { id } });
+      expect(decrypt(final.draftEncrypted)).not.toHaveProperty(
+        "_draftCheckpoint",
+      );
+      expect(
+        await db.contactRequest.count({ where: { registrationId: id } }),
+      ).toBe(0);
+      expect(await db.booking.count({ where: { registrationId: id } })).toBe(0);
+    });
+    it("creates one clinician-review proposal without modifying a published source", async () => {
+      context.token = tokens.staff;
+      const latest = await db.questionnaire.findFirst({
+        orderBy: { version: "desc" },
+      });
+      const source = await db.questionnaire.create({
+        data: {
+          version: latest!.version + 1,
+          questions: [{ id: "original", label: "Original", type: "text" }],
+          rules: [],
+          status: "published",
+          approvedBy: staffId,
+        },
+      });
+      proposalIds.push(source.id);
+      const first = await call("admin/questionnaires/rc03-draft", {
+        sourceId: source.id,
+      });
+      expect(first.status).toBe(200);
+      proposalIds.push(first.body.data.id);
+      const repeat = await call("admin/questionnaires/rc03-draft", {
+        sourceId: source.id,
+      });
+      expect(repeat.body.data.id).toBe(first.body.data.id);
+      const draft = await db.questionnaire.findUniqueOrThrow({
+        where: { id: first.body.data.id },
+      });
+      expect(draft.status).toBe("draft");
+      expect(draft.approvedBy).toBeNull();
+      expect(draft.questions).toHaveLength(2);
+      const original = await db.questionnaire.findUniqueOrThrow({
+        where: { id: source.id },
+      });
+      expect(original.questions).toEqual(source.questions);
+      expect(original.status).toBe("published");
     });
   },
 );

@@ -97,7 +97,7 @@ describe.skipIf(!enabled)(
       const u = new URL(process.env.DATABASE_URL!);
       if (
         !["localhost", "127.0.0.1"].includes(u.hostname) ||
-        u.pathname != "/pdh_healthcheck_test"
+        u.pathname != "/pdh_healthcheck_rc01_test"
       )
         throw Error("Isolated test DB only");
       original = await db.bookingPolicy.findUniqueOrThrow({

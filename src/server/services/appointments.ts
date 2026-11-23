@@ -1,3 +1,4 @@
+import { isRegistrationCheckpoint } from "@/lib/registration-checkpoint";
 import { assertContactSession } from "./contact-verification";
 import { db } from "@/lib/db";
 import {
@@ -235,6 +236,7 @@ async function confirmCore(
           "ข้อมูล ราคารวม หรือเวลาที่สำรองหมดอายุ กรุณาตรวจสอบอีกครั้ง",
         );
       const person = decrypt<Person>(registration.draftEncrypted);
+      if (isRegistrationCheckpoint(person)) throw new AppError(422, "กรุณากรอกและบันทึกแบบประเมินให้ครบก่อนส่งข้อมูล", "DRAFT_INCOMPLETE");
       if (
         !review &&
         (person.intakeVersion === 2 || person.intakeVersion === 3) &&

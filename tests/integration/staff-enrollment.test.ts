@@ -67,7 +67,7 @@ describe.skipIf(!enabled)(
       let response: Response;
       try {
         response = await api(
-          new Request("http://localhost:3036/api/v1/" + resource, {
+          new Request("http://localhost:3037/api/v1/" + resource, {
             method: data === undefined ? "GET" : "POST",
             headers: {
               Origin: "https://localhost:3036",
@@ -106,7 +106,7 @@ describe.skipIf(!enabled)(
       const url = new URL(process.env.DATABASE_URL!);
       if (
         !["127.0.0.1", "localhost"].includes(url.hostname) ||
-        url.pathname !== "/pdh_healthcheck_test"
+        url.pathname !== "/pdh_healthcheck_rc01_test"
       )
         throw new Error("Isolated test database required");
       vi.stubEnv("NODE_ENV", "production");

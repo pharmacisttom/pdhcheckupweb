@@ -1,3 +1,8 @@
+import {
+  checkpointInput,
+  isRegistrationCheckpoint,
+} from "@/lib/registration-checkpoint";
+import { saveRegistrationCheckpoint } from "./services/registration-checkpoint";
 import { adminCrud } from "./services/admin-crud";
 import { chatRoute } from "./services/chat/router";
 import {
@@ -63,7 +68,7 @@ import bcrypt from "bcryptjs";
 import { matchingOperatorTotpStep } from "@/lib/mfa";
 import { consumeTotpStep } from "./services/totp-replay";
 import { recordSecurityEvent } from "./services/security-events";
-import { randomInt } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import {
@@ -103,6 +108,7 @@ import { approveImport, stageImport } from "./services/imports";
 import {
   questionnaireSchema,
   draftQuestionnaire,
+  draftRc03Proposal,
   approveQuestionnaire,
   updateDraftQuestionnaire,
   archiveQuestionnaire,
@@ -392,8 +398,7 @@ export async function api(req: Request, path: string[]) {
         user?.passwordHash ??
           "$2b$12$C6UzMDM.H6dfI/f/IKcEe.5gB28V9G0FM8p8h8Y3w5tQ7sV2Mtq9K",
       );
-      if (!user?.active || !ok)
-        throw new AppError(401, "ข้อมูลเข้าสู่ระบบไม่ถูกต้อง");
+      if (!user?.active || !ok) throw new AppError(401, "ข้อมูลเข้าสู่ระบบไม่ถูกต้อง");
       if (user.activationRequired)
         throw new AppError(
           403,
@@ -432,10 +437,7 @@ export async function api(req: Request, path: string[]) {
           fresh.activationRequired ||
           fresh.mustChangePassword !== user.mustChangePassword
         )
-          throw new AppError(
-            401,
-            "ข้อมูลบัญชีเปลี่ยนแปลง กรุณาเข้าสู่ระบบใหม่",
-          );
+          throw new AppError(401, "ข้อมูลบัญชีเปลี่ยนแปลง กรุณาเข้าสู่ระบบใหม่");
         if (user.mfaSecret && loginTotpStep === null) {
           if (!(await consumeRecoveryCode(tx, user.id, cleanMfa)))
             throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
@@ -527,8 +529,7 @@ export async function api(req: Request, path: string[]) {
         });
         return true;
       });
-      if (!success)
-        throw new AppError(422, "รหัสไม่ถูกต้อง หมดอายุ หรือเกินจำนวนครั้ง");
+      if (!success) throw new AppError(422, "รหัสไม่ถูกต้อง หมดอายุ หรือเกินจำนวนครั้ง");
       data = { verified: true };
     } else if (method === "GET" && resource === "booking-policy") {
       const policy = await bookingPolicy();
@@ -703,8 +704,8 @@ export async function api(req: Request, path: string[]) {
         componentCodes: s.componentCodes,
       }));
     } else if (method === "GET" && resource === "organizations/registration") {
-      const s = (await session())!;
-      assertContactSession(s);
+      // Organization names are registration catalog metadata, never member/clinical data.
+      await session();
       data = await db.organization.findMany({
         where: { status: "active" },
         select: { id: true, name: true },
@@ -737,6 +738,14 @@ export async function api(req: Request, path: string[]) {
           q.rules as RiskRule[],
         ),
       };
+    } else if (method === "POST" && resource === "registrations/draft") {
+      const s = (await session())!;
+      assertContactSession(s);
+      await rateLimit("registration-checkpoint:" + s.id, 180, 600);
+      data = await saveRegistrationCheckpoint(
+        s.id,
+        await body(req, checkpointInput),
+      );
     } else if (method === "POST" && resource === "registrations") {
       const s = (await session())!;
       assertContactSession(s);
@@ -771,10 +780,7 @@ export async function api(req: Request, path: string[]) {
           ? intakeReuseValue(source, input.person)
           : undefined;
         if (value === undefined)
-          throw new AppError(
-            422,
-            "แบบประเมินเปลี่ยนแปลง กรุณาโหลดแบบฟอร์มใหม่",
-          );
+          throw new AppError(422, "แบบประเมินเปลี่ยนแปลง กรุณาโหลดแบบฟอร์มใหม่");
         input.answers[id] = value;
       }
       const errors = validateAnswers(q.questions as Question[], input.answers);
@@ -784,8 +790,9 @@ export async function api(req: Request, path: string[]) {
         input.answers,
         q.version,
       );
+      const draftToken = randomUUID();
       const record = {
-        draftEncrypted: encrypt(input.person),
+        draftEncrypted: encrypt({ ...input.person, _draftToken: draftToken }),
         assessmentEncrypted: encrypt(input.answers),
         questionnaireVersion: q.version,
         expiresAt: new Date(Date.now() + 24 * 3600000),
@@ -804,14 +811,12 @@ export async function api(req: Request, path: string[]) {
           : null;
         if (input.id && !existing) throw new AppError(404, "ไม่พบแบบร่าง");
         if (
-          !existing &&
+          (!existing ||
+            isRegistrationCheckpoint(decrypt(existing.draftEncrypted))) &&
           (input.person.heightCm === undefined ||
             input.person.weightKg === undefined)
         )
-          throw new AppError(
-            422,
-            "กรุณาระบุส่วนสูงและน้ำหนักสำหรับการลงทะเบียนใหม่",
-          );
+          throw new AppError(422, "กรุณาระบุส่วนสูงและน้ำหนักสำหรับการลงทะเบียนใหม่");
         const organizationId =
           input.person.registrationMode === "group"
             ? input.person.group?.organizationId
@@ -830,10 +835,7 @@ export async function api(req: Request, path: string[]) {
               where: { registrationId: existing.id },
             })
           )
-            throw new AppError(
-              409,
-              "ส่งข้อมูลแล้ว กรุณาติดต่อเจ้าหน้าที่เพื่อแก้ไข",
-            );
+            throw new AppError(409, "ส่งข้อมูลแล้ว กรุณาติดต่อเจ้าหน้าที่เพื่อแก้ไข");
         }
         const r = existing
           ? await tx.registration.update({
@@ -849,7 +851,7 @@ export async function api(req: Request, path: string[]) {
               },
             });
         await audit(tx, s.id, "registration.saved", r.id);
-        return { id: r.id, decisions };
+        return { id: r.id, decisions, draftToken };
       });
     } else if (method === "POST" && resource === "registrations/recover") {
       const s = (await session())!;
@@ -1396,6 +1398,11 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
       take: 50,
     });
   }
+  if (resource === "questionnaires/rc03-draft" && method === "POST") {
+    const s = await guard("questionnaire:write");
+    const input = await body(req, z.object({ sourceId: str }));
+    return draftRc03Proposal(input.sourceId, s.user!.id);
+  }
   if (resource === "questionnaires" && method === "POST") {
     const s = await guard("questionnaire:write");
     return draftQuestionnaire(await body(req, questionnaireSchema), s.user!.id);
@@ -1479,10 +1486,7 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
       if (input.capacity < booked + held)
         throw new AppError(409, "ลดความจุต่ำกว่าจำนวนจองและสำรองไม่ได้");
       if (input.blackout && booked)
-        throw new AppError(
-          409,
-          "มีนัดหมายอยู่ ต้องจัดการนัดเดิมก่อนปิดวันให้บริการ",
-        );
+        throw new AppError(409, "มีนัดหมายอยู่ ต้องจัดการนัดเดิมก่อนปิดวันให้บริการ");
       await tx.dayCapacity.update({
         where: { id: input.day },
         data: { capacity: input.capacity, blackout: input.blackout },

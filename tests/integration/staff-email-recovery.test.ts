@@ -79,10 +79,10 @@ describe.skipIf(!enabled)(
       let r: Response;
       try {
         r = await api(
-          new Request("http://localhost:3036/api/v1/" + path, {
+          new Request("http://localhost:3037/api/v1/" + path, {
             method: data === undefined ? "GET" : "POST",
             headers: {
-              Origin: "http://localhost:3036",
+              Origin: "http://localhost:3037",
               "Content-Type": "application/json",
             },
             ...(data === undefined ? {} : { body: JSON.stringify(data) }),
@@ -133,10 +133,10 @@ describe.skipIf(!enabled)(
       const u = new URL(process.env.DATABASE_URL!);
       if (
         !["localhost", "127.0.0.1"].includes(u.hostname) ||
-        u.pathname !== "/pdh_healthcheck_test"
+        u.pathname !== "/pdh_healthcheck_rc01_test"
       )
         throw Error("Test database only");
-      vi.stubEnv("APP_URL", "http://localhost:3036");
+      vi.stubEnv("APP_URL", "http://localhost:3037");
       vi.stubEnv("EMAIL_PROVIDER", "disabled");
       passwordHash = await bcrypt.hash(password, 12);
       manager = await makeUser("manager");

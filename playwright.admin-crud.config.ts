@@ -11,6 +11,7 @@ const config = {
   testMatch: [
     "admin-crud.spec.ts",
     "rc03-contact.spec.ts",
+    "rc03-group.spec.ts",
     "rc03-ui.spec.ts",
     "mobile-app.spec.ts",
     "registration-mobile.spec.ts",

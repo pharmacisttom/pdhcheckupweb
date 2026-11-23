@@ -82,7 +82,7 @@ jobs:
       - name: Verify migrated isolated schema matches Prisma (read-only)
         run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
       - name: Registration recovery persistence integration
-        run: node scripts/test-rc03-integration.mjs
+        run: node scripts/test-rc03-integration.mjs --all
       - name: Typecheck
         run: npm run typecheck
       - name: Lint

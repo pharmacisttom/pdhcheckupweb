@@ -41,10 +41,10 @@ describe.skipIf(!enabled)("complete admin CRUD isolated MySQL", () => {
   async function call(path: string, role = "superadmin", data?: unknown) {
     context.token = tokens[role] ?? role;
     const r = await api(
-      new Request("http://localhost:3036/api/v1/" + path, {
+      new Request("http://localhost:3037/api/v1/" + path, {
         method: data === undefined ? "GET" : "POST",
         headers: {
-          Origin: "http://localhost:3036",
+          Origin: "http://localhost:3037",
           "Content-Type": "application/json",
         },
         ...(data === undefined ? {} : { body: JSON.stringify(data) }),
@@ -59,9 +59,9 @@ describe.skipIf(!enabled)("complete admin CRUD isolated MySQL", () => {
     f.set("file", file);
     f.set("mapping", mapping);
     const r = await api(
-      new Request("http://localhost:3036/api/v1/admin/imports", {
+      new Request("http://localhost:3037/api/v1/admin/imports", {
         method: "POST",
-        headers: { Origin: "http://localhost:3036" },
+        headers: { Origin: "http://localhost:3037" },
         body: f,
       }),
       ["admin", "imports"],
@@ -110,7 +110,7 @@ describe.skipIf(!enabled)("complete admin CRUD isolated MySQL", () => {
     const url = new URL(process.env.DATABASE_URL!);
     if (
       !["127.0.0.1", "localhost"].includes(url.hostname) ||
-      url.pathname !== "/pdh_healthcheck_test"
+      url.pathname !== "/pdh_healthcheck_rc01_test"
     )
       throw Error("Isolated test DB required");
     for (const role of [
