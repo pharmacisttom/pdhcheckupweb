@@ -45,7 +45,7 @@ Scope: DEVELOPMENT / TEST ONLY. Do not deploy or migrate Production from this br
    - Test individual and group, organization status, authorization, concurrent bookings and privacy.
 
 7. **BMI and age boundary 35.**
-   - Existing age is derived from birthdate, not a numeric user-entered age. Confirm clinical intention: age under 35 vs >=35 (what happens exactly at 35), and whether BMI is simply displayed or changes eligibility/package logic.
+   - Existing age is derived from birthdate, not a numeric user-entered age. Confirmed by request: age under 35 vs at least 35 (age exactly 35 belongs to latter); BMI is displayed only, without clinical decision or package eligibility until physician signs off.
    - Calculate BMI=weight_kg/(height_m^2); validate realistic height/weight bounds as approved by clinicians, avoid division by zero, calculate age from DOB at relevant assessment date in Asia/Bangkok; do not conflate BMI threshold 35 with age threshold 35.
    - Test age 34/35/36 at birthday boundary, BMI known values, missing/invalid inputs and save/recovery. No automatic booking eligibility decision until policy approved.
 
@@ -57,7 +57,7 @@ Scope: DEVELOPMENT / TEST ONLY. Do not deploy or migrate Production from this br
 5. No Production deployment until RC02 outstanding SMS OTP, PDPA, clinical content and release gates are signed off.
 
 ## Delivery status as of this document
-- Completed code: **item 2 client validation** only; existing backend validation reused.
+- Completed code: **item 2 client validation**, **item 7 measured height/weight, BMI display, under-35/at-least-35 display categories and focused unit tests**; backend validation reused. The BMI input is encrypted with the existing Registration person JSON, requiring no DB migration. Existing legacy draft entries without measurements remain parseable, but newly edited wizard screens ask for both inputs.
 - Confirmed pre-existing: portions of item 1 (draft/back), item 3 (intake reuse and structured relatives), item 7 (age computation).
-- Pending code/clinical signoff: full item 1 regression tests, item 3 questionnaire review, item 4 admin modal, item 5 snoring, item 6 group registration, item 7 approved BMI and age rules.
-- All RC03 tests: **NOT YET EXECUTED**. Do not claim seven features complete.
+- Pending code/clinical signoff: full item 1 regression tests, item 3 questionnaire review, item 4 admin modal, item 5 snoring, item 6 group registration, item 7 physician-approved clinical interpretation and end-to-end testing.
+- New unit tests are committed but RC03 CI/test execution is **NOT YET VERIFIED**. Do not claim seven features complete.
