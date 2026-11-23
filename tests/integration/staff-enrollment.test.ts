@@ -57,7 +57,7 @@ describe.skipIf(!enabled)(
         new Request("http://localhost:3036/api/v1/" + resource, {
           method: data === undefined ? "GET" : "POST",
           headers: {
-            Origin: "http://localhost:3036",
+            Origin: "https://localhost:3036",
             "Content-Type": "application/json",
           },
           body: data === undefined ? undefined : JSON.stringify(data),
@@ -94,12 +94,16 @@ describe.skipIf(!enabled)(
       )
         throw new Error("Isolated test database required");
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("APP_URL", "http://localhost:3036");
+      vi.stubEnv("APP_URL", "https://localhost:3036");
       passwordHash = await bcrypt.hash(password, 12);
       manager = await user("manager");
       superadmin = await user("superadmin");
     });
     afterAll(async () => {
+      await db.mfaRecoveryCode.deleteMany({ where: { userId: { in: ids } } });
+      await db.staffPasswordReset.deleteMany({
+        where: { userId: { in: ids } },
+      });
       await db.userInvitation.deleteMany({ where: { userId: { in: ids } } });
       await db.session.deleteMany({ where: { userId: { in: ids } } });
       await db.audit.deleteMany({

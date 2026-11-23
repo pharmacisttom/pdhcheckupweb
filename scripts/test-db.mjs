@@ -12,6 +12,7 @@ const env = {
   DATABASE_URL: url.toString(),
   RUN_DB_TESTS: "true",
   OTP_PROVIDER: "test",
+  EMAIL_PROVIDER: "disabled",
 };
 for (const args of [
   ["node_modules/prisma/build/index.js", "migrate", "deploy"],

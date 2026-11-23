@@ -1,8 +1,10 @@
 import { TOTP } from 'otpauth';
 
 export function operatorTotp(secret: string, email?: string) {
-  return new TOTP({ issuer: 'PDH Smart Health Check', label: email, secret, algorithm: 'SHA1', digits: 6, period: 30 });
+  const cleanSecret = (secret || '').trim().toUpperCase().replace(/[\s-]+/g, '');
+  return new TOTP({ issuer: 'PDH Smart Health Check', label: email, secret: cleanSecret, algorithm: 'SHA1', digits: 6, period: 30 });
 }
 export function validOperatorTotp(secret: string, code: string, timestamp = Date.now()) {
-  return /^\d{6}$/.test(code) && operatorTotp(secret).validate({ token: code, window: 1, timestamp }) !== null;
+  const cleanCode = (code || '').trim().replace(/[\s-]+/g, '');
+  return /^\d{6}$/.test(cleanCode) && operatorTotp(secret).validate({ token: cleanCode, window: 1, timestamp }) !== null;
 }

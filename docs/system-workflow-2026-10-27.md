@@ -94,3 +94,16 @@ See docs/qa/2026-10-28/README.md for actual test results and browser-emulation s
 ## Homepage campaign media (2026-10-29)
 
 Homepage now shows three featured posters, 13 additional posters in expandable media, and one sleep-education reference image (asc_sleep_1.jpg). All 17 open full-size, with localized captions/alt text and a Thai-original notice. Backgrounds use soft gradients; posters remain content. No pricing/coverage/clinical rules are derived from image text. See docs/campaign-images-2026-10-29.md for actual checks and limitations.
+
+
+## Staff email onboarding feature (2026-10-30)
+
+See STAFF_INVITATION_DELIVERY.md and nine staff guides. Email defaults disabled; SMTP/Resend server adapters extend existing invitations. Reset retains MFA, recovery codes are one-use/hash-only and require password. Staff recovery does not enable public patient recovery. Local verification passed; real mail/DNS/VPS acceptance remains pending. No production activation.
+
+## Health Chat local feature (2026-10-30)
+
+Optional public Health Chat now uses a separate approved notice and existing session ownership. It is disabled by default. Published/public/unexpired FAQ extracts may answer with version citations; sensitive, uncertain, conflicting or unbound pricing questions hand off. Public messages/private notes/feedback are encrypted. Explicit department agents use /admin/chat to accept, assign, transfer, reply, note and resolve. Human takeover cancels pending automatic delivery. /admin/chat/knowledge provides draft/version/import/review/publication; /settings controls notice approval, memberships and kill switches; /reports provides aggregate CSV/XLSX. No chat action creates or confirms a Booking. See PDH_HEALTH_CHAT_TEST_PLAN.md and OPERATIONS.md for tested scope and remaining acceptance. No production deployment or real AI call performed.
+
+## Administrative CRUD update (2026-10-31)
+
+Organizations, service metadata, future slot capacity/closure, waitlist assignment/contact/actual-booking linkage and manual finance/PDPA cases now have dedicated guarded forms with revision checks and history. Package approvers can read drafts, clone prefilled new versions and search paginated results. Questionnaires support draft edits/archive without changing published content in place. Staff reschedule uses the original capacity transaction with recorded patient agreement. Chat departments can be managed from settings; verified deletion cases can redact only the owner-linked chat with audit. A new additive migration preserves prior records. Audit remains read-only. Finance is a manual evidence ledger, not a payment gateway; case completion does not automatically delete clinical records or backups. See ADMIN_CRUD_HANDOFF_2026-10-31.md for exact scope, tests and deployment gates.
