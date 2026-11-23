@@ -21,9 +21,11 @@ async function mockRegistrationApi(page: Page, failSave = false) {
         });
         return;
       }
-      data = null;
-    }
-    else if (path === "booking-policy")
+      data =
+        request.method() === "POST"
+          ? { id: "synthetic-registration", draftToken: crypto.randomUUID() }
+          : null;
+    } else if (path === "booking-policy")
       data = { onlineEnabled: false, message: "เจ้าหน้าที่จะติดต่อนัด" };
     else if (path === "registrations" && request.method() === "POST") {
       if (failSave) {
@@ -37,10 +39,7 @@ async function mockRegistrationApi(page: Page, failSave = false) {
         return;
       }
       data = { id: "synthetic-registration", decisions: [] };
-    } else if (
-      path === "contact-requests" &&
-      request.method() === "POST"
-    )
+    } else if (path === "contact-requests" && request.method() === "POST")
       data = { reference: "SYNTHETIC-RC02" };
     await route.fulfill({
       status: 200,
@@ -95,7 +94,9 @@ test("registration stays within all target widths on mobile and desktop", async 
           if (element.closest(".stepper, .table-wrap, .responsive-table"))
             return false;
           const rect = element.getBoundingClientRect();
-          return rect.width > 0 && (rect.left < -1 || rect.right > viewportWidth + 1);
+          return (
+            rect.width > 0 && (rect.left < -1 || rect.right > viewportWidth + 1)
+          );
         })
         .slice(0, 8)
         .map((element) => element.className || element.tagName);
@@ -117,27 +118,37 @@ test("registration keeps fields between steps and reports server success only af
   await startRegistration(page);
   await fillRequiredPersonalData(page);
   await page.getByRole("button", { name: "ดำเนินการต่อ" }).click();
-  await expect(page.getByRole("heading", { name: "2. ประเมินสุขภาพ" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "2. ประเมินสุขภาพ" }),
+  ).toBeVisible();
   await fillHealthFields(page);
   await page.getByRole("button", { name: "ดำเนินการต่อ" }).click();
-  await expect(page.getByRole("heading", { name: "3. เลือกแพ็กเกจ" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "3. เลือกแพ็กเกจ" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "ย้อนกลับ" }).click();
-  await expect(page.getByRole("heading", { name: "2. ประเมินสุขภาพ" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "2. ประเมินสุขภาพ" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "ย้อนกลับ" }).click();
   await expect(page.getByLabel("ชื่อ *", { exact: true })).toHaveValue(
     "ทดสอบสังเคราะห์",
   );
   await page.getByRole("button", { name: "ดำเนินการต่อ" }).click();
   await page.getByRole("button", { name: "ดำเนินการต่อ" }).click();
-  await expect(page.getByRole("heading", { name: "3. เลือกแพ็กเกจ" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "3. เลือกแพ็กเกจ" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "ดำเนินการต่อ" }).click();
-  await expect(page.getByRole("heading", { name: "6. ตรวจสอบและยืนยัน" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "6. ตรวจสอบและยืนยัน" }),
+  ).toBeVisible();
   await expect(page.getByText("ทดสอบสังเคราะห์", { exact: true })).toHaveCount(0);
   await page.getByRole("checkbox").check();
-  await page
-    .getByRole("button", { name: "ส่งข้อมูลให้เจ้าหน้าที่ติดต่อกลับ" })
-    .click();
-  await expect(page.locator(".swal2-toast")).toContainText("ส่งข้อมูลให้เจ้าหน้าที่แล้ว");
+  await page.getByRole("button", { name: "ส่งข้อมูลให้เจ้าหน้าที่ติดต่อกลับ" }).click();
+  await expect(page.locator(".swal2-toast")).toContainText(
+    "ส่งข้อมูลให้เจ้าหน้าที่แล้ว",
+  );
   await expect(page.getByText("SYNTHETIC-RC02", { exact: true })).toBeVisible();
 });
 
@@ -152,6 +163,10 @@ test("registration uses a generic accessible alert for API errors", async ({
   await page.getByRole("button", { name: "ดำเนินการต่อ" }).click();
   const alert = page.locator(".swal2-popup");
   await expect(alert).toContainText("ไม่สามารถดำเนินการได้");
-  await expect(alert).not.toContainText("SYNTHETIC_PRIVATE_ERROR_SHOULD_NOT_ALERT");
-  await expect(page.getByText(/SYNTHETIC_PRIVATE_ERROR_SHOULD_NOT_ALERT/)).toBeVisible();
+  await expect(alert).not.toContainText(
+    "SYNTHETIC_PRIVATE_ERROR_SHOULD_NOT_ALERT",
+  );
+  await expect(
+    page.getByText(/SYNTHETIC_PRIVATE_ERROR_SHOULD_NOT_ALERT/),
+  ).toBeVisible();
 });

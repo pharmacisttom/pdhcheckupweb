@@ -17,7 +17,7 @@ const result = spawnSync(
   [
     "node_modules/vitest/vitest.mjs",
     "run",
-    ...(process.argv.includes("--all")
+    ...(!process.argv.includes("--focused")
       ? ["tests/integration"]
       : [
           "tests/integration/rc03.test.ts",

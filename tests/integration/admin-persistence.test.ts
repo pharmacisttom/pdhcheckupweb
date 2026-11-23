@@ -1,3 +1,4 @@
+import { verifyRc02TestDatabase } from "../../scripts/test-db-guard.mjs";
 import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 const identity = vi.hoisted(() => ({ token: "" }));
 vi.mock("next/headers", () => ({
@@ -31,15 +32,9 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
       return { status: response.status, body: await response.json() };
     }
     beforeAll(async () => {
-      const url = new URL(process.env.DATABASE_URL!);
-      if (
-        !["localhost", "127.0.0.1"].includes(url.hostname) ||
-        url.pathname !== "/pdh_healthcheck_prod_restore_test" ||
-        process.env.PDH_ALLOW_RESTORE_TEST_CRUD !== "YES"
-      )
-        throw Error(
-          "Refusing database writes: explicit opt-in and isolated pdh_healthcheck_prod_restore_test required",
-        );
+      await verifyRc02TestDatabase(db, process.env.DATABASE_URL ?? "");
+      if (process.env.PDH_TEST_ALLOW_SYNTHETIC_FIXTURES !== "true")
+        throw Error("Explicit synthetic fixtures opt-in required");
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("APP_URL", "http://localhost:3037");
       userId = (
@@ -193,7 +188,14 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
     });
     it("persists questionnaire draft changes, rejects stale edits, and preserves an audit trail", async () => {
       const initial = {
-        questions: [{ id: "pilot", label: "Synthetic initial", type: "text", required: true }],
+        questions: [
+          {
+            id: "pilot",
+            label: "Synthetic initial",
+            type: "text",
+            required: true,
+          },
+        ],
         rules: [],
       };
       const created = await call("admin/questionnaires", initial);
@@ -203,53 +205,100 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
       const changed = {
         id,
         revision: 0,
-        questions: [{ id: "pilot", label: "Synthetic updated", type: "text", required: true }],
+        questions: [
+          {
+            id: "pilot",
+            label: "Synthetic updated",
+            type: "text",
+            required: true,
+          },
+        ],
         rules: [],
       };
-      expect((await call("admin/questionnaires/update", changed)).status).toBe(200);
-      expect((await call("admin/questionnaires/update", changed)).status).toBe(409);
+      expect((await call("admin/questionnaires/update", changed)).status).toBe(
+        200,
+      );
+      expect((await call("admin/questionnaires/update", changed)).status).toBe(
+        409,
+      );
       const saved = await db.questionnaire.findUniqueOrThrow({ where: { id } });
       expect(saved.revision).toBe(1);
       expect(saved.questions).toEqual(changed.questions);
       const listed = await call("admin/questionnaires");
-      expect(listed.body.data).toContainEqual(expect.objectContaining({
-        id, revision: 1, status: "draft",
-      }));
-      expect(await db.audit.count({
-        where: { actorId: userId, resourceId: id, action: "questionnaire.updated" },
-      })).toBe(1);
+      expect(listed.body.data).toContainEqual(
+        expect.objectContaining({
+          id,
+          revision: 1,
+          status: "draft",
+        }),
+      );
+      expect(
+        await db.audit.count({
+          where: {
+            actorId: userId,
+            resourceId: id,
+            action: "questionnaire.updated",
+          },
+        }),
+      ).toBe(1);
       const archived = await call("admin/questionnaires/archive", {
-        id, revision: 1, reason: "Synthetic retention test",
+        id,
+        revision: 1,
+        reason: "Synthetic retention test",
       });
       expect(archived.status).toBe(200);
-      expect(await db.questionnaire.findUnique({ where: { id } }))
-        .toMatchObject({ status: "archived", revision: 2 });
-      expect(await db.audit.count({
-        where: { actorId: userId, resourceId: id, action: "questionnaire.archived" },
-      })).toBe(1);
-      expect((await call("admin/questionnaires/update", {
-        ...changed, revision: 2,
-      })).status).toBe(409);
+      expect(
+        await db.questionnaire.findUnique({ where: { id } }),
+      ).toMatchObject({ status: "archived", revision: 2 });
+      expect(
+        await db.audit.count({
+          where: {
+            actorId: userId,
+            resourceId: id,
+            action: "questionnaire.archived",
+          },
+        }),
+      ).toBe(1);
+      expect(
+        (
+          await call("admin/questionnaires/update", {
+            ...changed,
+            revision: 2,
+          })
+        ).status,
+      ).toBe(409);
     });
     it("protects the last published questionnaire from archival", async () => {
       const created = await call("admin/questionnaires", {
-        questions: [{ id: "pilot", label: "Synthetic published", type: "text" }],
+        questions: [
+          { id: "pilot", label: "Synthetic published", type: "text" },
+        ],
         rules: [],
       });
       expect(created.status).toBe(200);
       const id = created.body.data.id;
       questions.push(id);
-      expect((await call("admin/questionnaires/approve", { id })).status).toBe(200);
-      const latest = await db.questionnaire.findUniqueOrThrow({ where: { id } });
+      expect((await call("admin/questionnaires/approve", { id })).status).toBe(
+        200,
+      );
+      const latest = await db.questionnaire.findUniqueOrThrow({
+        where: { id },
+      });
       // A deployed catalog may already have another published questionnaire; only
       // assert the last-active safeguard when this is the only published version.
       const count = await db.questionnaire.count({
         where: { status: "published", approvedBy: { not: null } },
       });
       if (count === 1) {
-        expect((await call("admin/questionnaires/archive", {
-          id, revision: latest.revision, reason: "Synthetic archive attempt",
-        })).status).toBe(409);
+        expect(
+          (
+            await call("admin/questionnaires/archive", {
+              id,
+              revision: latest.revision,
+              reason: "Synthetic archive attempt",
+            })
+          ).status,
+        ).toBe(409);
       }
     });
     it("persists callback status and an encrypted staff note and audits the update", async () => {
