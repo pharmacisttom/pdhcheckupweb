@@ -237,7 +237,7 @@ async function confirmCore(
       const person = decrypt<Person>(registration.draftEncrypted);
       if (
         !review &&
-        person.intakeVersion === 2 &&
+        (person.intakeVersion === 2 || person.intakeVersion === 3) &&
         input.noticeVersion !== PRIVACY_VERSION
       )
         throw new AppError(

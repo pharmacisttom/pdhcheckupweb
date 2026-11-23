@@ -87,7 +87,7 @@ export async function submitContactRequest(
       const person = decrypt<Person>(registration.draftEncrypted);
       assertContactSession(identity, person.phone);
       if (
-        (person.intakeVersion === 2 || input.noticeVersion) &&
+        ((person.intakeVersion === 2 || person.intakeVersion === 3) || input.noticeVersion) &&
         input.noticeVersion !== PRIVACY_VERSION
       )
         throw new AppError(

@@ -28,6 +28,7 @@ import {
   type IntakeReusePlan,
 } from "@/lib/intake-reuse";
 import { HealthHistoryPicker } from "./health-history-picker";
+import { ageOn, validThaiId } from "@/lib/patient-validation";
 import { ageBand35, calculateBmi } from "@/lib/anthropometrics";
 import { RecoverRegistration } from "./recover-registration";
 import {
@@ -40,8 +41,22 @@ import {
   type HealthSelections,
 } from "@/lib/health-history";
 type FormPerson = {
+  registrationPreferences?: {
+    packageId: string;
+    addonIds: string[];
+    day: string;
+    slotId: string;
+    staffAdvice: boolean;
+  };
   healthSelections?: HealthSelections;
-  intakeVersion?: 2;
+  intakeVersion?: 2 | 3;
+  registrationMode?: "individual" | "group";
+  group?: {
+    organizationId: string;
+    primaryContact: string;
+    contactPhone: string;
+    participantReference?: string;
+  };
   surgeryHistory: string;
   familyNcdEntries: { relationship: string; disease: string; note?: string }[];
   firstName: string;
@@ -149,7 +164,8 @@ export function RegistrationWizard() {
   } = useForm<FormPerson>({
     shouldUnregister: false,
     defaultValues: {
-      intakeVersion: 2,
+      intakeVersion: 3,
+      registrationMode: "individual",
       documentType: "none",
       contactChannel: "sms",
       email: "",
@@ -221,6 +237,17 @@ export function RegistrationWizard() {
       ? summarizeHealthSelection(name, selected, t)
       : getValues(name);
   }
+  const registrationMode = useWatch({ control, name: "registrationMode" });
+  const [organizations, setOrganizations] = useState<
+    { id: string; name: string }[]
+  >([]);
+  useEffect(() => {
+    if (registrationMode === "group" && ready) {
+      request<typeof organizations>("organizations/registration")
+        .then(setOrganizations)
+        .catch(() => setError("ไม่สามารถโหลดหน่วยงานได้"));
+    }
+  }, [registrationMode, ready]);
   const birthdate = useWatch({ control, name: "birthdate" });
   const heightCm = useWatch({ control, name: "heightCm" });
   const weightKg = useWatch({ control, name: "weightKg" });
@@ -233,22 +260,19 @@ export function RegistrationWizard() {
         intakeReuseValue(source, currentPerson as FormPerson) !== undefined,
     )
     .map(([id]) => id);
-  const birth = birthdate ? new Date(birthdate + "T00:00:00") : null;
-  const today = new Date();
-  const age =
-    birth && Number.isFinite(birth.getTime()) && birth <= today
-      ? today.getFullYear() -
-        birth.getFullYear() -
-        (today.getMonth() < birth.getMonth() ||
-        (today.getMonth() === birth.getMonth() &&
-          today.getDate() < birth.getDate())
-          ? 1
-          : 0)
-      : null;
+  let age: number | null = null;
+  try {
+    if (birthdate) age = ageOn(birthdate);
+  } catch {
+    /* Inline birthdate validation handles invalid dates. */
+  }
   const bmi =
-    typeof heightCm === "number" && typeof weightKg === "number" &&
-    Number.isFinite(heightCm) && Number.isFinite(weightKg) &&
-    heightCm > 0 && weightKg > 0
+    typeof heightCm === "number" &&
+    typeof weightKg === "number" &&
+    Number.isFinite(heightCm) &&
+    Number.isFinite(weightKg) &&
+    heightCm > 0 &&
+    weightKg > 0
       ? calculateBmi(heightCm, weightKg)
       : null;
   const documentType = useWatch({ control, name: "documentType" });
@@ -289,6 +313,12 @@ export function RegistrationWizard() {
           ),
         ]);
         setPackages(p);
+        if (draft && draft.questionnaireVersion !== q.version) {
+          const savedQuestionnaire = await request<typeof q>(
+            "questionnaire?version=" + draft.questionnaireVersion,
+          );
+          Object.assign(q, savedQuestionnaire);
+        }
         setQuestionnaire(q);
         setServices(svc);
         setSlots(times);
@@ -308,9 +338,17 @@ export function RegistrationWizard() {
               )
               .map(([id]) => id),
           );
-          reset(draft.person);
+          reset({ ...draft.person, intakeVersion: 3 });
           setAnswers(draft.answers);
           setRegistrationId(draft.id);
+          const preferences = draft.person.registrationPreferences;
+          if (preferences) {
+            setPackageId(preferences.packageId);
+            setAddons(preferences.addonIds);
+            setDay(preferences.day);
+            setSlotId(preferences.slotId);
+            setStaffAdvice(preferences.staffAdvice);
+          }
         }
         setReady(true);
       })
@@ -320,7 +358,11 @@ export function RegistrationWizard() {
     heading.current?.focus();
     document
       .querySelector<HTMLButtonElement>(".stepper button.current")
-      ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+      ?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "center",
+      });
   }, [step]);
   async function run(fn: () => Promise<void>) {
     if (busyRef.current) return;
@@ -361,8 +403,66 @@ export function RegistrationWizard() {
       setTestCode("");
     });
   }
+  async function saveRegistration() {
+    const r = await request<{
+      id: string;
+      decisions: {
+        decision: string;
+        reason: string;
+        translations?: Record<string, string>;
+      }[];
+    }>("registrations", {
+      id: registrationId || undefined,
+      requestId: idempotency.current,
+      person: {
+        ...getValues(),
+        locale,
+        registrationPreferences: {
+          packageId,
+          addonIds: addons,
+          day,
+          slotId,
+          staffAdvice,
+        },
+        group:
+          getValues("registrationMode") === "group"
+            ? getValues("group")
+            : undefined,
+        healthSelections: {
+          ...getValues("healthSelections"),
+          familyNcdDetails:
+            getValues("familyNcdStatus") === "yes"
+              ? getValues("healthSelections.familyNcdDetails")
+              : undefined,
+        },
+        familyNcdEntries:
+          getValues("familyNcdStatus") === "yes"
+            ? getValues("familyNcdEntries")
+            : [],
+        familyNcdDetails:
+          getValues("familyNcdStatus") === "yes"
+            ? getValues("familyNcdDetails")
+            : "",
+      },
+      answers,
+      reuseIntakeAnswers: reusedIds,
+      questionnaireVersion: questionnaire?.version,
+    });
+    setRegistrationId(r.id);
+    const warnings = r.decisions.filter((d) =>
+      [
+        "needs_clinical_review",
+        "not_eligible_for_specific_service",
+        "safety_warning",
+      ].includes(d.decision),
+    );
+    setReviewNotice(
+      warnings.map((w) => w.translations?.[locale] ?? t(w.reason)).join(" • "),
+    );
+  }
   async function next() {
     await run(async () => {
+      if (step > 1 && registrationId) await saveRegistration();
       if (step === 0) {
         if (otpIsRequired && !verified) {
           if (verificationId && otp) {
@@ -406,51 +506,7 @@ export function RegistrationWizard() {
           }
         }
 
-        const r = await request<{
-          id: string;
-          decisions: {
-            decision: string;
-            reason: string;
-            translations?: Record<string, string>;
-          }[];
-        }>("registrations", {
-          id: registrationId || undefined,
-          person: {
-            ...getValues(),
-            locale,
-            healthSelections: {
-              ...getValues("healthSelections"),
-              familyNcdDetails:
-                getValues("familyNcdStatus") === "yes"
-                  ? getValues("healthSelections.familyNcdDetails")
-                  : undefined,
-            },
-            familyNcdEntries:
-              getValues("familyNcdStatus") === "yes"
-                ? getValues("familyNcdEntries")
-                : [],
-            familyNcdDetails:
-              getValues("familyNcdStatus") === "yes"
-                ? getValues("familyNcdDetails")
-                : "",
-          },
-          answers,
-          reuseIntakeAnswers: reusedIds,
-          questionnaireVersion: questionnaire?.version,
-        });
-        setRegistrationId(r.id);
-        const warnings = r.decisions.filter((d) =>
-          [
-            "needs_clinical_review",
-            "not_eligible_for_specific_service",
-            "safety_warning",
-          ].includes(d.decision),
-        );
-        setReviewNotice(
-          warnings
-            .map((w) => w.translations?.[locale] ?? t(w.reason))
-            .join(" • "),
-        );
+        await saveRegistration();
         setStep(2);
       }
       if (step === 2) {
@@ -677,6 +733,91 @@ export function RegistrationWizard() {
                   )}
                 </p>
                 <div className="form-grid">
+                  <fieldset className="full">
+                    <legend>{t("รูปแบบการลงทะเบียน")}</legend>
+                    <label>
+                      <input
+                        type="radio"
+                        value="individual"
+                        {...register("registrationMode")}
+                      />
+                      {t("รายบุคคล")}
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        value="group"
+                        {...register("registrationMode")}
+                      />
+                      {t("หน่วยงาน / กลุ่ม")}
+                    </label>
+                    {registrationMode === "group" && (
+                      <div className="form-grid">
+                        <div className="field">
+                          <label htmlFor="groupOrganization">
+                            {t("หน่วยงาน *")}
+                          </label>
+                          <select
+                            id="groupOrganization"
+                            {...register("group.organizationId", {
+                              validate: (v) =>
+                                getValues("registrationMode") !== "group" ||
+                                !!v ||
+                                t("กรุณาเลือกหน่วยงาน"),
+                            })}
+                          >
+                            <option value="">{t("เลือกหน่วยงาน")}</option>
+                            {organizations.map((o) => (
+                              <option key={o.id} value={o.id}>
+                                {o.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <label className="field">
+                          {t("ผู้ประสานงานหลัก *")}
+                          <input
+                            maxLength={200}
+                            {...register("group.primaryContact", {
+                              validate: (v) =>
+                                getValues("registrationMode") !== "group" ||
+                                !!v?.trim() ||
+                                t("กรุณาระบุผู้ประสานงาน"),
+                            })}
+                          />
+                        </label>
+                        <label className="field">
+                          {t("โทรศัพท์ผู้ประสานงาน *")}
+                          <input
+                            type="tel"
+                            maxLength={30}
+                            {...register("group.contactPhone", {
+                              validate: (v) =>
+                                getValues("registrationMode") !== "group" ||
+                                /^0[689]\d{8}$/.test(
+                                  (v ?? "")
+                                    .replace(/[\s()-]/g, "")
+                                    .replace(/^\+66/, "0"),
+                                ) ||
+                                t("กรุณาระบุเบอร์มือถือไทยที่ถูกต้อง"),
+                            })}
+                          />
+                        </label>
+                        <label className="field">
+                          {t("รหัสผู้เข้าร่วม (ถ้ามี)")}
+                          <input
+                            maxLength={100}
+                            {...register("group.participantReference")}
+                          />
+                        </label>
+                        <p>
+                          {t(
+                            "ผู้ประสานงานและสมาชิกกลุ่มจะไม่เห็นคำตอบสุขภาพของผู้เข้าร่วมคนอื่น หากไม่พบหน่วยงาน โปรดติดต่อเจ้าหน้าที่",
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </fieldset>
                   <div className="field">
                     <label htmlFor="firstName">{t("ชื่อ *")}</label>
                     <input
@@ -735,7 +876,9 @@ export function RegistrationWizard() {
                     </small>
                   </div>
                   <div className="field">
-                    <label htmlFor="heightCm">{t("ส่วนสูง (เซนติเมตร) *")}</label>
+                    <label htmlFor="heightCm">
+                      {t("ส่วนสูง (เซนติเมตร) *")}
+                    </label>
                     <input
                       id="heightCm"
                       type="number"
@@ -748,13 +891,20 @@ export function RegistrationWizard() {
                         required: t("กรุณาระบุส่วนสูง"),
                         min: { value: 0.1, message: t("ส่วนสูงต้องมากกว่า 0") },
                         max: { value: 300, message: t("กรุณาตรวจสอบส่วนสูง") },
-                        setValueAs: (value) => value === "" ? undefined : Number(value),
+                        setValueAs: (value) =>
+                          value === "" ? undefined : Number(value),
                       })}
                     />
-                    {errors.heightCm && <span className="field-error" role="alert">{errors.heightCm.message}</span>}
+                    {errors.heightCm && (
+                      <span className="field-error" role="alert">
+                        {errors.heightCm.message}
+                      </span>
+                    )}
                   </div>
                   <div className="field">
-                    <label htmlFor="weightKg">{t("น้ำหนัก (กิโลกรัม) *")}</label>
+                    <label htmlFor="weightKg">
+                      {t("น้ำหนัก (กิโลกรัม) *")}
+                    </label>
                     <input
                       id="weightKg"
                       type="number"
@@ -767,16 +917,27 @@ export function RegistrationWizard() {
                         required: t("กรุณาระบุน้ำหนัก"),
                         min: { value: 0.1, message: t("น้ำหนักต้องมากกว่า 0") },
                         max: { value: 500, message: t("กรุณาตรวจสอบน้ำหนัก") },
-                        setValueAs: (value) => value === "" ? undefined : Number(value),
+                        setValueAs: (value) =>
+                          value === "" ? undefined : Number(value),
                       })}
                     />
-                    {errors.weightKg && <span className="field-error" role="alert">{errors.weightKg.message}</span>}
+                    {errors.weightKg && (
+                      <span className="field-error" role="alert">
+                        {errors.weightKg.message}
+                      </span>
+                    )}
                   </div>
                   <div className="full">
                     {bmi !== null && (
-                      <p role="status">{t("BMI")} {bmi.toFixed(2)} kg/m²</p>
+                      <p role="status">
+                        {t("BMI")} {bmi.toFixed(2)} kg/m²
+                      </p>
                     )}
-                    <small>{t("BMI เป็นค่าคำนวณเพื่อแสดงข้อมูลเท่านั้น ยังไม่ใช้จัดกลุ่มความเสี่ยงหรือเลือกแพ็กเกจ จนกว่าแพทย์จะรับรองเกณฑ์")}</small>
+                    <small>
+                      {t(
+                        "BMI เป็นค่าคำนวณเพื่อแสดงข้อมูลเท่านั้น ยังไม่ใช้จัดกลุ่มความเสี่ยงหรือเลือกแพ็กเกจ จนกว่าแพทย์จะรับรองเกณฑ์",
+                      )}
+                    </small>
                   </div>
                   <div className="field">
                     <label htmlFor="sex">{t("เพศ *")}</label>
@@ -907,32 +1068,33 @@ export function RegistrationWizard() {
                       <label htmlFor="identifier">{t("เลขเอกสาร")}</label>
                       <input
                         id="identifier"
-                        inputMode={documentType === "thai_id" ? "numeric" : "text"}
+                        inputMode={
+                          documentType === "thai_id" ? "numeric" : "text"
+                        }
                         autoComplete="off"
-                        maxLength={documentType === "thai_id" ? 13 : 50}
+                        maxLength={50}
                         aria-invalid={!!errors.identifier}
-                        aria-describedby={errors.identifier ? "identifier-error" : undefined}
+                        aria-describedby={
+                          errors.identifier ? "identifier-error" : undefined
+                        }
                         {...register("identifier", {
                           validate: (value) => {
                             if (documentType !== "thai_id") return true;
-                            if (!/^\\d{13}$/.test(value ?? ""))
+                            if (!/^\d{13}$/.test(value ?? ""))
                               return t("กรุณากรอกเลขบัตรประชาชนให้ครบ 13 หลัก");
-                            const digits = value ?? "";
-                            if (/^(\\d)\\1{12}$/.test(digits))
-                              return t("เลขบัตรประชาชนไม่ถูกต้อง");
-                            const sum = [...digits.slice(0, 12)].reduce(
-                              (total, digit, index) => total + Number(digit) * (13 - index),
-                              0,
-                            );
                             return (
-                              (11 - (sum % 11)) % 10 === Number(digits[12]) ||
+                              validThaiId(value ?? "") ||
                               t("เลขบัตรประชาชนไม่ถูกต้อง")
                             );
                           },
                         })}
                       />
                       {errors.identifier && (
-                        <span id="identifier-error" className="field-error" role="alert">
+                        <span
+                          id="identifier-error"
+                          className="field-error"
+                          role="alert"
+                        >
                           {errors.identifier.message}
                         </span>
                       )}
@@ -1081,117 +1243,183 @@ export function RegistrationWizard() {
                           "ญาติสายตรง: ระบุความสัมพันธ์และโรค ไม่ต้องระบุชื่อ",
                         )}
                       </legend>
-                      {familyFields.map((family, i) => (
-                        <div className="form-grid" key={family.id}>
-                          <label className="field">
-                            {t("ความสัมพันธ์")}
-                            <select
-                              required
-                              {...register(
-                                `familyNcdEntries.${i}.relationship`,
-                              )}
-                            >
-                              <option value="">{t("เลือกคำตอบ")}</option>
-                              <option value="mother">{t("มารดา")}</option>
-                              <option value="father">{t("บิดา")}</option>
-                              <option value="sibling">{t("พี่น้อง")}</option>
-                              <option value="child">{t("บุตร")}</option>
-                            </select>
-                          </label>
-                          <label className="field">
-                            {t("โรค")}
-                            <select
-                              required
-                              {...register(`familyNcdEntries.${i}.disease`)}
-                            >
-                              <option value="">{t("เลือกคำตอบ")}</option>
-                              <option value="diabetes">{t("เบาหวาน")}</option>
-                              <option value="hypertension">
-                                {t("ความดันโลหิตสูง")}
-                              </option>
-                              <option value="heart_disease">
-                                {t("โรคหัวใจ")}
-                              </option>
-                              <option value="stroke">
-                                {t("โรคหลอดเลือดสมอง")}
-                              </option>
-                              <option value="cancer">{t("มะเร็ง")}</option>
-                              <option value="other">{t("อื่น ๆ")}</option>
-                            </select>
-                          </label>
-                          <Controller
-                            name={`familyNcdEntries.${i}.note`}
-                            control={control}
-                            rules={{
-                              validate: () => {
-                                if (getValues("familyNcdStatus") !== "yes")
-                                  return true;
-                                const meta =
-                                  extraSelections["family-note-" + family.id];
-                                return (
-                                  !meta ||
-                                  validChoices(meta, [], 500) ||
-                                  t(
-                                    "กรุณาเลือกข้อมูลให้ครบและตรวจรายการที่เพิ่มเอง",
+                      {[
+                        ["mother", "มารดา"],
+                        ["father", "บิดา"],
+                        ["sibling", "พี่น้อง"],
+                        ["child", "บุตร"],
+                      ].map(([relationship, label]) => (
+                        <fieldset key={relationship}>
+                          <legend>{t(label)}</legend>
+                          {[
+                            ["diabetes", "เบาหวาน"],
+                            ["hypertension", "ความดันโลหิตสูง"],
+                            ["heart_disease", "โรคหัวใจ"],
+                            ["stroke", "โรคหลอดเลือดสมอง"],
+                            ["cancer", "มะเร็ง"],
+                            ["other", "อื่น ๆ"],
+                          ].map(([disease, name]) => (
+                            <label className="check-label" key={disease}>
+                              <input
+                                type="checkbox"
+                                checked={
+                                  !!currentPerson.familyNcdEntries?.some(
+                                    (f) =>
+                                      f?.relationship === relationship &&
+                                      f?.disease === disease,
                                   )
-                                );
-                              },
-                            }}
-                            render={({ field, fieldState }) => (
-                              <HealthHistoryPicker
-                                id={"family-note-" + family.id}
-                                label={t(
-                                  "รายละเอียดโรคของญาติ (ไม่ต้องระบุชื่อ)",
-                                )}
-                                required={false}
-                                options={[]}
-                                maxLength={500}
-                                value={field.value ?? ""}
-                                selection={
-                                  extraSelections["family-note-" + family.id]
                                 }
-                                inputRef={field.ref}
-                                onBlur={field.onBlur}
-                                error={fieldState.error?.message}
-                                onChange={(value, selection) => {
-                                  setExtraSelections((prev) => ({
-                                    ...prev,
-                                    ["family-note-" + family.id]: selection,
-                                  }));
-                                  field.onChange(value);
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    if (
+                                      !getValues("familyNcdEntries")?.some(
+                                        (f) =>
+                                          f.relationship === relationship &&
+                                          f.disease === disease,
+                                      )
+                                    )
+                                      appendFamily({
+                                        relationship,
+                                        disease,
+                                        note: "",
+                                      });
+                                  } else {
+                                    const entries =
+                                      getValues("familyNcdEntries") ?? [];
+                                    removeFamily(
+                                      entries.flatMap((f, i) =>
+                                        f.relationship === relationship &&
+                                        f.disease === disease
+                                          ? [i]
+                                          : [],
+                                      ),
+                                    );
+                                  }
                                 }}
                               />
-                            )}
-                          />
-                          <button
-                            type="button"
-                            className="button secondary"
-                            onClick={() => {
-                              removeFamily(i);
-                              setExtraSelections((prev) => {
-                                const next = { ...prev };
-                                delete next["family-note-" + family.id];
-                                return next;
-                              });
-                            }}
-                          >
-                            {t("ลบรายการญาติ")}
-                          </button>
-                        </div>
+                              {t(name)}
+                            </label>
+                          ))}
+                        </fieldset>
                       ))}
-                      <button
-                        type="button"
-                        className="button secondary"
-                        onClick={() =>
-                          appendFamily({
-                            relationship: "",
-                            disease: "",
-                            note: "",
-                          })
-                        }
-                      >
-                        {t("เพิ่มประวัติญาติสายตรง")}
-                      </button>
+                      <details>
+                        <summary>
+                          {t(
+                            "รายละเอียดเดิม / รายละเอียดเพิ่มเติม (ไม่ระบุชื่อญาติ)",
+                          )}
+                        </summary>
+                        {familyFields.map((family, i) => (
+                          <div className="form-grid" key={family.id}>
+                            <label className="field">
+                              {t("ความสัมพันธ์")}
+                              <select
+                                required
+                                {...register(
+                                  `familyNcdEntries.${i}.relationship`,
+                                )}
+                              >
+                                <option value="">{t("เลือกคำตอบ")}</option>
+                                <option value="mother">{t("มารดา")}</option>
+                                <option value="father">{t("บิดา")}</option>
+                                <option value="sibling">{t("พี่น้อง")}</option>
+                                <option value="child">{t("บุตร")}</option>
+                              </select>
+                            </label>
+                            <label className="field">
+                              {t("โรค")}
+                              <select
+                                required
+                                {...register(`familyNcdEntries.${i}.disease`)}
+                              >
+                                <option value="">{t("เลือกคำตอบ")}</option>
+                                <option value="diabetes">{t("เบาหวาน")}</option>
+                                <option value="hypertension">
+                                  {t("ความดันโลหิตสูง")}
+                                </option>
+                                <option value="heart_disease">
+                                  {t("โรคหัวใจ")}
+                                </option>
+                                <option value="stroke">
+                                  {t("โรคหลอดเลือดสมอง")}
+                                </option>
+                                <option value="cancer">{t("มะเร็ง")}</option>
+                                <option value="other">{t("อื่น ๆ")}</option>
+                              </select>
+                            </label>
+                            <Controller
+                              name={`familyNcdEntries.${i}.note`}
+                              control={control}
+                              rules={{
+                                validate: () => {
+                                  if (getValues("familyNcdStatus") !== "yes")
+                                    return true;
+                                  const meta =
+                                    extraSelections["family-note-" + family.id];
+                                  return (
+                                    !meta ||
+                                    validChoices(meta, [], 500) ||
+                                    t(
+                                      "กรุณาเลือกข้อมูลให้ครบและตรวจรายการที่เพิ่มเอง",
+                                    )
+                                  );
+                                },
+                              }}
+                              render={({ field, fieldState }) => (
+                                <HealthHistoryPicker
+                                  id={"family-note-" + family.id}
+                                  label={t(
+                                    "รายละเอียดโรคของญาติ (ไม่ต้องระบุชื่อ)",
+                                  )}
+                                  required={false}
+                                  options={[]}
+                                  maxLength={500}
+                                  value={field.value ?? ""}
+                                  selection={
+                                    extraSelections["family-note-" + family.id]
+                                  }
+                                  inputRef={field.ref}
+                                  onBlur={field.onBlur}
+                                  error={fieldState.error?.message}
+                                  onChange={(value, selection) => {
+                                    setExtraSelections((prev) => ({
+                                      ...prev,
+                                      ["family-note-" + family.id]: selection,
+                                    }));
+                                    field.onChange(value);
+                                  }}
+                                />
+                              )}
+                            />
+                            <button
+                              type="button"
+                              className="button secondary"
+                              onClick={() => {
+                                removeFamily(i);
+                                setExtraSelections((prev) => {
+                                  const next = { ...prev };
+                                  delete next["family-note-" + family.id];
+                                  return next;
+                                });
+                              }}
+                            >
+                              {t("ลบรายการญาติ")}
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          className="button secondary"
+                          onClick={() =>
+                            appendFamily({
+                              relationship: "",
+                              disease: "",
+                              note: "",
+                            })
+                          }
+                        >
+                          {t("เพิ่มประวัติญาติสายตรง")}
+                        </button>
+                      </details>
                     </fieldset>
                   )}
                   {familyNcdStatus === "yes" && (
@@ -1526,7 +1754,10 @@ export function RegistrationWizard() {
                   </div>
                   <div>
                     <dt>{t("ส่วนสูง / น้ำหนัก / BMI")}</dt>
-                    <dd>{heightCm ?? "—"} cm / {weightKg ?? "—"} kg / {bmi !== null ? bmi.toFixed(2) + " kg/m²" : "—"}</dd>
+                    <dd>
+                      {heightCm ?? "—"} cm / {weightKg ?? "—"} kg /{" "}
+                      {bmi !== null ? bmi.toFixed(2) + " kg/m²" : "—"}
+                    </dd>
                   </div>
                   <div>
                     <dt>{t("ประวัติการเจ็บป่วย")}</dt>
@@ -1720,10 +1951,16 @@ export function RegistrationWizard() {
           </div>
           <h3 style={{ marginTop: 15 }}>{t("สรุปการลงทะเบียน")}</h3>
           {registrationId && (
-            <div className="alert" role="status" style={{ overflowWrap: "anywhere" }}>
+            <div
+              className="alert"
+              role="status"
+              style={{ overflowWrap: "anywhere" }}
+            >
               <div>
                 <strong>บันทึกข้อมูลลงทะเบียนแล้ว (ยังไม่ใช่การจอง)</strong>
-                <p style={{ marginBottom: 6 }}>รหัสสำหรับเรียกคืนข้อมูลเดิม โปรดเก็บไว้ใช้คู่กับ OTP:</p>
+                <p style={{ marginBottom: 6 }}>
+                  รหัสสำหรับเรียกคืนข้อมูลเดิม โปรดเก็บไว้ใช้คู่กับ OTP:
+                </p>
                 <code>{registrationId}</code>
                 <button
                   type="button"
@@ -1732,7 +1969,9 @@ export function RegistrationWizard() {
                   onClick={() => {
                     void navigator.clipboard?.writeText(registrationId);
                   }}
-                >คัดลอกรหัสลงทะเบียน</button>
+                >
+                  คัดลอกรหัสลงทะเบียน
+                </button>
               </div>
             </div>
           )}

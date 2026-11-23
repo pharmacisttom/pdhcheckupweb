@@ -54,6 +54,8 @@ async function fillRequiredPersonalData(page: Page) {
   await page.getByLabel("ชื่อ *", { exact: true }).fill("ทดสอบสังเคราะห์");
   await page.getByLabel("นามสกุล *", { exact: true }).fill("RC02");
   await page.getByLabel("วันเกิด (ค.ศ.) *", { exact: true }).fill("1990-01-01");
+  await page.locator("#heightCm").fill("170");
+  await page.locator("#weightKg").fill("70");
   await page.locator("#sex").selectOption("unspecified");
   await page.locator("#treatmentRight").selectOption("unknown");
   await page.getByLabel("โทรศัพท์มือถือ *", { exact: true }).fill("0812345678");

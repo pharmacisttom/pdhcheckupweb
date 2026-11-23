@@ -1,4 +1,9 @@
 "use client";
+import {
+  questionnaireInventory,
+  proposeRc03Questionnaire,
+} from "@/lib/rc03-questionnaire";
+import type { Question, RiskRule } from "@/lib/domain";
 import { ManagedRecords } from "./managed-records";
 import { useEffect, useState } from "react";
 import { request, dateTime } from "@/lib/client";
@@ -16,8 +21,8 @@ type Questionnaire = {
   revision: number;
   version: number;
   status: string;
-  questions: unknown[];
-  rules: unknown[];
+  questions: Question[];
+  rules: RiskRule[];
   createdAt: string;
 };
 type CalendarDay = {
@@ -181,7 +186,46 @@ export function ConfigurationWorkspace({
                 {q.questions.length} คำถาม · {q.rules.length} กฎ ·{" "}
                 {dateTime(q.createdAt)}
               </p>
+              <details>
+                <summary>รายการคำถามและข้อเสนอให้แพทย์ทบทวน</summary>
+                <pre
+                  style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+                >
+                  {JSON.stringify(
+                    questionnaireInventory(q.questions, q.rules),
+                    null,
+                    2,
+                  )}
+                </pre>
+                <p>
+                  ข้อเสนออาจซ้ำกัน ต้องทบทวนข้อความ เงื่อนไข และคำแปลก่อนแก้ไข
+                  ไม่ลบคำตอบหรือรหัสคำถามเดิมอัตโนมัติ
+                </p>
+              </details>
               <div className="actions">
+                <button
+                  className="button secondary small"
+                  disabled={
+                    busy ||
+                    q.questions.some((item) => item.id === "snoring_history")
+                  }
+                  onClick={() => {
+                    setEditing(null);
+                    setJson(
+                      JSON.stringify(
+                        proposeRc03Questionnaire(q.questions, q.rules),
+                        null,
+                        2,
+                      ),
+                    );
+                    setNotice(
+                      "เตรียมข้อเสนอ RC03 แล้ว โปรดบันทึกเป็นฉบับร่างเพื่อรอแพทย์ทบทวน ยังไม่ได้เผยแพร่",
+                    );
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                >
+                  เตรียมฉบับร่าง RC03 พร้อมประวัติกรน
+                </button>
                 <button
                   className="button secondary small"
                   onClick={() => {

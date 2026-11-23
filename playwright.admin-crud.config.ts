@@ -10,6 +10,8 @@ const config = {
   use: { ...base.use, baseURL: "http://localhost:3037" },
   testMatch: [
     "admin-crud.spec.ts",
+    "rc03-contact.spec.ts",
+    "rc03-ui.spec.ts",
     "mobile-app.spec.ts",
     "registration-mobile.spec.ts",
   ],
