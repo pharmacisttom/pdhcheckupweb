@@ -28,6 +28,7 @@ import {
   type IntakeReusePlan,
 } from "@/lib/intake-reuse";
 import { HealthHistoryPicker } from "./health-history-picker";
+import { ageBand35, calculateBmi } from "@/lib/anthropometrics";
 import { RecoverRegistration } from "./recover-registration";
 import {
   healthHistoryOptions,
@@ -46,6 +47,8 @@ type FormPerson = {
   firstName: string;
   lastName: string;
   birthdate: string;
+  heightCm?: number;
+  weightKg?: number;
   sex: string;
   treatmentRight: string;
   treatmentRightDetails: string;
@@ -219,6 +222,8 @@ export function RegistrationWizard() {
       : getValues(name);
   }
   const birthdate = useWatch({ control, name: "birthdate" });
+  const heightCm = useWatch({ control, name: "heightCm" });
+  const weightKg = useWatch({ control, name: "weightKg" });
   const familyNcdStatus = useWatch({ control, name: "familyNcdStatus" });
   const currentPerson = useWatch({ control });
   const reusedIds = Object.entries(questionnaire?.intakeReuse ?? {})
@@ -239,6 +244,12 @@ export function RegistrationWizard() {
           today.getDate() < birth.getDate())
           ? 1
           : 0)
+      : null;
+  const bmi =
+    typeof heightCm === "number" && typeof weightKg === "number" &&
+    Number.isFinite(heightCm) && Number.isFinite(weightKg) &&
+    heightCm > 0 && weightKg > 0
+      ? calculateBmi(heightCm, weightKg)
       : null;
   const documentType = useWatch({ control, name: "documentType" });
   const contactMode = staffAdvice || !!reviewNotice || !policy.onlineEnabled;
@@ -713,12 +724,59 @@ export function RegistrationWizard() {
                       <p role="status">
                         {t("อายุ")}
                         {age}
-                        {t("ปี")}
+                        {t("ปี")} —{" "}
+                        {ageBand35(age) === "under_35"
+                          ? t("น้อยกว่า 35 ปี")
+                          : t("ตั้งแต่ 35 ปีขึ้นไป")}
                       </p>
                     )}
                     <small>
                       {t("กรอกปีคริสต์ศักราช เช่น พ.ศ. 2533 = ค.ศ. 1990")}
                     </small>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="heightCm">{t("ส่วนสูง (เซนติเมตร) *")}</label>
+                    <input
+                      id="heightCm"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.1"
+                      min="0.1"
+                      max="300"
+                      aria-invalid={!!errors.heightCm}
+                      {...register("heightCm", {
+                        required: t("กรุณาระบุส่วนสูง"),
+                        min: { value: 0.1, message: t("ส่วนสูงต้องมากกว่า 0") },
+                        max: { value: 300, message: t("กรุณาตรวจสอบส่วนสูง") },
+                        setValueAs: (value) => value === "" ? undefined : Number(value),
+                      })}
+                    />
+                    {errors.heightCm && <span className="field-error" role="alert">{errors.heightCm.message}</span>}
+                  </div>
+                  <div className="field">
+                    <label htmlFor="weightKg">{t("น้ำหนัก (กิโลกรัม) *")}</label>
+                    <input
+                      id="weightKg"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.1"
+                      min="0.1"
+                      max="500"
+                      aria-invalid={!!errors.weightKg}
+                      {...register("weightKg", {
+                        required: t("กรุณาระบุน้ำหนัก"),
+                        min: { value: 0.1, message: t("น้ำหนักต้องมากกว่า 0") },
+                        max: { value: 500, message: t("กรุณาตรวจสอบน้ำหนัก") },
+                        setValueAs: (value) => value === "" ? undefined : Number(value),
+                      })}
+                    />
+                    {errors.weightKg && <span className="field-error" role="alert">{errors.weightKg.message}</span>}
+                  </div>
+                  <div className="full">
+                    {bmi !== null && (
+                      <p role="status">{t("BMI")} {bmi.toFixed(2)} kg/m²</p>
+                    )}
+                    <small>{t("BMI เป็นค่าคำนวณเพื่อแสดงข้อมูลเท่านั้น ยังไม่ใช้จัดกลุ่มความเสี่ยงหรือเลือกแพ็กเกจ จนกว่าแพทย์จะรับรองเกณฑ์")}</small>
                   </div>
                   <div className="field">
                     <label htmlFor="sex">{t("เพศ *")}</label>
@@ -1465,6 +1523,10 @@ export function RegistrationWizard() {
                       }[getValues("treatmentRight")] ?? "—"}{" "}
                       {detailSummary("treatmentRightDetails")}
                     </dd>
+                  </div>
+                  <div>
+                    <dt>{t("ส่วนสูง / น้ำหนัก / BMI")}</dt>
+                    <dd>{heightCm ?? "—"} cm / {weightKg ?? "—"} kg / {bmi !== null ? bmi.toFixed(2) + " kg/m²" : "—"}</dd>
                   </div>
                   <div>
                     <dt>{t("ประวัติการเจ็บป่วย")}</dt>
