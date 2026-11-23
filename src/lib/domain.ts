@@ -64,6 +64,9 @@ export const personSchema = z
       }
     }, "วันเกิดไม่ถูกต้อง"),
     intakeVersion: z.literal(2).optional(),
+    /** Raw measured values; derived BMI is never accepted from the client. */
+    heightCm: z.number().finite().positive().max(300).optional(),
+    weightKg: z.number().finite().positive().max(500).optional(),
     locale: z.enum(["th", "en", "zh-Hans", "my", "km"]).default("th"),
     surgeryHistory: z.string().trim().max(2000).optional(),
     familyNcdEntries: z
@@ -177,6 +180,13 @@ export const personSchema = z
         path: ["familyNcdDetails"],
         message: "กรุณาระบุญาติและโรค NCD",
       });
+    if ((p.heightCm === undefined) !== (p.weightKg === undefined)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [p.heightCm === undefined ? "heightCm" : "weightKg"],
+        message: "กรุณาระบุส่วนสูงและน้ำหนักให้ครบทั้งสองช่อง",
+      });
+    }
     if (p.documentType === "thai_id" && !validThaiId(p.identifier ?? ""))
       ctx.addIssue({
         code: "custom",
