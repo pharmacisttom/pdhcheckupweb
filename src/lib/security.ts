@@ -1,3 +1,4 @@
+import { permitted } from "./permissions";
 import {
   createCipheriv,
   createDecipheriv,
@@ -115,62 +116,7 @@ export async function createSession(
   });
   return s;
 }
-const permissions: Record<string, string[]> = {
-  registration: [
-    "dashboard:read",
-    "bookings:read",
-    "bookings:write",
-    "checkin:write",
-    "chat:read",
-    "chat:reply",
-    "chat:knowledge.write",
-  ],
-  manager: [
-    "users:manage",
-    "chat:read",
-    "chat:reply",
-    "chat:assign",
-    "chat:settings",
-    "chat:settings.read",
-    "chat:reports",
-    "chat:knowledge.write",
-    "chat:knowledge.review",
-    "chat:knowledge.publish",
-    "dashboard:read",
-    "bookings:read",
-    "bookings:write",
-    "packages:write",
-    "calendar:write",
-    "reports:read",
-    "organizations:write",
-  ],
-  laboratory: ["catalog:write", "imports:write", "chat:read", "chat:reply"],
-  finance: [
-    "dashboard:read",
-    "imports:approve",
-    "finance:read",
-    "chat:read",
-    "chat:reply",
-    "reports:read",
-  ],
-  clinician: [
-    "questionnaire:write",
-    "clinical:read",
-    "packages:approve",
-    "chat:read",
-    "chat:reply",
-    "chat:knowledge.write",
-    "chat:knowledge.review",
-    "chat:clinical.review",
-  ],
-  dpo: ["privacy:read", "audit:read", "chat:privacy", "chat:settings.read"],
-  auditor: ["audit:read", "reports:read", "chat:reports"],
-  coordinator: ["organization:own"],
-  superadmin: ["*"],
-};
-export function permitted(role: string, permission: string) {
-  return permissions[role]?.some((p) => p === "*" || p === permission) ?? false;
-}
+export { permitted } from "./permissions";
 export async function guard(permission: string) {
   const s = await session();
   if (!s?.user || !permitted(s.user.role, permission))
@@ -186,15 +132,8 @@ export async function sameOrigin(request: Request) {
 export async function rateLimit(key: string, limit: number, seconds: number) {
   const now = new Date();
   const result = await db.$transaction(async (tx) => {
-    await tx.rateLimit.upsert({
-      where: { key },
-      create: {
-        key,
-        count: 0,
-        expiresAt: new Date(now.getTime() + seconds * 1000),
-      },
-      update: {},
-    });
+    // Empty Prisma upsert updates can use a read/insert path and race on first use.
+    await tx.$executeRaw`INSERT INTO RateLimit (\`key\`, \`count\`, expiresAt) VALUES (${key}, 0, ${new Date(now.getTime() + seconds * 1000)}) ON DUPLICATE KEY UPDATE \`key\`=\`key\``;
     await tx.$queryRaw`SELECT \`key\` FROM RateLimit WHERE \`key\` = ${key} FOR UPDATE`;
     const row = await tx.rateLimit.findUniqueOrThrow({ where: { key } });
     const count = row.expiresAt <= now ? 1 : row.count + 1;

@@ -53,4 +53,29 @@ describe("chat safety and approved evidence", () => {
     ).toBe("conflicting_evidence"));
   it("does not infer absent answers", () =>
     expect(relevantEvidence("ฉีดวัคซีน", [first]).matches).toEqual([]));
+  it("allows general result timeline questions without routing to personal_health", () => {
+    expect(chatSafetyReason("ผลตรวจออกกี่วัน")).toBeNull();
+    expect(chatSafetyReason("ผลตรวจออกเมื่อไหร่")).toBeNull();
+  });
+  it("prioritizes higher scoring record with more matching keywords", () => {
+    const fasting = {
+      id: "fasting",
+      question: "ตรวจสุขภาพต้องงดน้ำงดอาหารกี่ชั่วโมง",
+      answer: "งดอย่างน้อย 8-12 ชั่วโมง",
+      keywords: ["งดน้ำ", "งดอาหาร", "กี่ชั่วโมง", "ตรวจสุขภาพ"],
+    };
+    const water = {
+      id: "water",
+      question: "ดื่มน้ำเปล่าได้ไหม",
+      answer: "จิบน้ำเปล่าได้เล็กน้อย",
+      keywords: ["ตรวจสุขภาพ", "งดน้ำ"],
+    };
+    const res = relevantEvidence("ตรวจสุขภาพต้องงดน้ำงดอาหารกี่ชั่วโมงครับ", [
+      water,
+      fasting,
+    ]);
+    expect(res.matches).toHaveLength(1);
+    expect(res.matches[0].id).toBe("fasting");
+  });
 });
+

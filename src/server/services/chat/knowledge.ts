@@ -171,9 +171,9 @@ export async function knowledgeAction(id: string, action: string) {
     return next;
   });
 }
-export async function eligibleEvidence(departmentId?: string) {
+export async function eligibleEvidence(departmentId?: string, locale = "th") {
   const now = new Date();
-  return db.chatKnowledgeVersion.findMany({
+  const all = await db.chatKnowledgeVersion.findMany({
     where: {
       status: "published",
       startsAt: { lte: now },
@@ -188,14 +188,53 @@ export async function eligibleEvidence(departmentId?: string) {
     orderBy: { publishedAt: "desc" },
     take: 501,
   });
+
+  if (locale === "th") {
+    const thOnly = all.filter(
+      (v) =>
+        v.knowledge.topicKey.endsWith(":th") ||
+        !v.knowledge.topicKey.includes(":"),
+    );
+    return thOnly.length > 0 ? thOnly : all;
+  }
+
+  const localeItems = all.filter((v) =>
+    v.knowledge.topicKey.endsWith(":" + locale),
+  );
+  if (localeItems.length > 0) {
+    const existingTopics = new Set(
+      localeItems.map((v) => v.knowledge.topicKey.split(":")[0]),
+    );
+    const fallbacks = all.filter((v) => {
+      const baseKey = v.knowledge.topicKey.split(":")[0];
+      return (
+        !existingTopics.has(baseKey) &&
+        (v.knowledge.topicKey.endsWith(":th") ||
+          !v.knowledge.topicKey.includes(":"))
+      );
+    });
+    return [...localeItems, ...fallbacks];
+  }
+
+  return all.filter(
+    (v) =>
+      v.knowledge.topicKey.endsWith(":th") ||
+      !v.knowledge.topicKey.includes(":"),
+  );
 }
-export async function retrieve(text: string, departmentId: string) {
-  const rows = await eligibleEvidence(departmentId);
+export async function retrieve(
+  text: string,
+  departmentId: string,
+  locale = "th",
+) {
+  const rows = await eligibleEvidence(departmentId, locale);
   if (rows.length > 500) return { matches: [], reason: "index_capacity" };
   const result = relevantEvidence(text, rows);
   if (
     result.matches.some((v) =>
-      /ยา(?!บาล)|วินิจฉัย|prescrib|dosage/i.test(v.answer),
+      /(สั่ง|จ่าย|ปรับขนาด|เพิ่มขนาด|ลดขนาด)ยา|วินิจฉัย|prescrib|dosage/i.test(
+        v.answer,
+      ),
     )
   )
     return { matches: [], reason: "clinical_guidance" };
@@ -203,3 +242,4 @@ export async function retrieve(text: string, departmentId: string) {
     return { matches: [], reason: "price_requires_catalogue" };
   return result;
 }
+

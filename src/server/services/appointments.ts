@@ -409,12 +409,24 @@ export async function rescheduleBooking(
   bookingId: string,
   slotId: string,
   idempotencyKey: string,
+  staffContext?: { actorId: string; reason: string },
 ) {
   return db.$transaction(
     async (tx) => {
-      await assertOnlineBooking(tx);
+      if (!staffContext) await assertOnlineBooking(tx);
+      else if (staffContext.reason.trim().length < 3)
+        throw new AppError(422, "ต้องบันทึกเหตุผลและหลักฐานตกลงวันนัดใหม่");
       await tx.$queryRaw`SELECT id FROM Session WHERE id = ${sessionId} FOR UPDATE`;
-      const requestHash = fingerprint({ bookingId, slotId });
+      const requestHash = fingerprint({
+        bookingId,
+        slotId,
+        ...(staffContext
+          ? {
+              actorId: staffContext.actorId,
+              reasonHash: hash(staffContext.reason),
+            }
+          : {}),
+      });
       const previous = await tx.bookingChange.findUnique({
         where: { idempotencyKey },
       });
@@ -472,10 +484,22 @@ export async function rescheduleBooking(
           payloadEncrypted: encrypt({ bookingId }),
         },
       });
-      await audit(tx, sessionId, "booking.rescheduled", bookingId, {
-        previousSlotId: booking.slotId,
-        newSlotId: slotId,
-      });
+      await audit(
+        tx,
+        staffContext?.actorId ?? sessionId,
+        "booking.rescheduled",
+        bookingId,
+        {
+          ...(staffContext
+            ? {
+                reasonEncrypted: encrypt(staffContext.reason),
+                patientAgreementRecorded: true,
+              }
+            : {}),
+          previousSlotId: booking.slotId,
+          newSlotId: slotId,
+        },
+      );
       return { id: bookingId, slotId };
     },
     { isolationLevel: "ReadCommitted", timeout: 20000 },
