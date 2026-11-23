@@ -454,10 +454,15 @@ describe('PDH Smart Health Check — Data Promotion Safety & Referential Integri
       let transactionStarted = false;
       let transactionRolledBack = false;
 
+      interface MockTx {
+        questionnaire: { upsert: () => Promise<unknown> };
+        service: { upsert: () => Promise<unknown> };
+      }
+
       const mockTargetDb = {
-        $transaction: vi.fn(async (callback: (tx: any) => Promise<any>) => {
+        $transaction: vi.fn(async (callback: (tx: MockTx) => Promise<unknown>) => {
           transactionStarted = true;
-          const mockTx = {
+          const mockTx: MockTx = {
             questionnaire: { upsert: vi.fn().mockResolvedValue({}) },
             service: {
               upsert: vi.fn().mockRejectedValue(new Error('Simulated DB constraint failure')),

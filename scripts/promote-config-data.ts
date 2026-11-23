@@ -17,7 +17,7 @@
 
 import { PrismaClient, Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
-import { writeFileSync, readFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 
 export const ALLOWED_CONFIG_TABLES = [
   'Questionnaire',
@@ -191,7 +191,7 @@ export function filterServices<T extends {
   active: boolean;
   requiresReview: boolean;
   preparation?: string | null;
-  componentCodes: any;
+  componentCodes: unknown;
   revision: number;
 }>(
   sourceServices: T[],
@@ -843,7 +843,6 @@ export async function runPromotion(options: PromotionOptions) {
 
     // --- 5. PACKAGE ITEM (Business Key Resolution) ---
     const targetPkgItems = await targetDb.packageItem.findMany();
-    const targetItemKeySet = new Set(targetPkgItems.map(i => `${i.packageId}_${i.serviceId}`));
     const sourcePkgMap = new Map(allSourcePackages.map(p => [p.id, p]));
 
     let piIns = 0, piUpd = 0, piSkip = 0;
@@ -855,7 +854,6 @@ export async function runPromotion(options: PromotionOptions) {
       const targetSvc = targetServiceMap.get(sCode);
 
       if (targetPkg && targetSvc) {
-        const itemKey = `${targetPkg.id}_${targetSvc.id}`;
         const existingItem = targetPkgItems.find(i => i.packageId === targetPkg.id && i.serviceId === targetSvc.id);
         if (existingItem) {
           if (existingItem.position === item.position && existingItem.mode === item.mode) {
