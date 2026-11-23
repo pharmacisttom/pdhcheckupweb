@@ -2,6 +2,8 @@ import { test, expect, type Page } from "@playwright/test";
 import { proposeRc03Questionnaire } from "../../src/lib/rc03-questionnaire";
 import { ageOn } from "../../src/lib/patient-validation";
 
+test.use({ timezoneId: "America/Los_Angeles" });
+
 async function setup(page: Page) {
   let saved: {
     id: string;

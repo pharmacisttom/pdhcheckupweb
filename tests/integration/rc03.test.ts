@@ -176,6 +176,14 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
       expect(saved.status).toBe(200);
       registrationId = saved.body.data.id;
       registrations.push(registrationId);
+      const parallel = await Promise.all([
+        call("registrations", input),
+        call("registrations", input),
+      ]);
+      expect(parallel.map((r) => r.body.data.id)).toEqual([
+        registrationId,
+        registrationId,
+      ]);
       const replay = await call("registrations", input);
       expect(replay.status).toBe(200);
       expect(replay.body.data.id).toBe(registrationId);
@@ -283,6 +291,17 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
           )
         ).body.data.rows,
       ).toEqual([]);
+      await db.user.update({
+        where: { id: staffId },
+        data: { role: "clinician" },
+      });
+      expect(
+        (await call("admin/contact-requests/detail?id=" + contactId)).status,
+      ).toBe(403);
+      await db.user.update({
+        where: { id: staffId },
+        data: { role: "superadmin" },
+      });
       const detail = await call(
         "admin/contact-requests/detail?id=" + contactId,
       );
