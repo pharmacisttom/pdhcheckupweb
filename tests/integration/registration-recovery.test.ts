@@ -2,7 +2,7 @@ import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { verifyRc02TestDatabase } from "../../scripts/test-db-guard.mjs";
-import { encrypt, hash } from "../../src/lib/security";
+import { encrypt, decrypt, hash } from "../../src/lib/security";
 import { recoverRegistrationDraft } from "../../src/server/services/recover-registration";
 
 const integration = process.env.RUN_DB_TESTS === "true" ? describe : describe.skip;
@@ -37,8 +37,10 @@ integration("RC02 durable registration and secure cross-session recovery (isolat
           lastName: "Recovery",
           birthdate: "1990-01-01",
           phone: "+66812345678",
+          heightCm: 170, weightKg: 70,
+          familyNcdEntries: [{ relationship: "mother", disease: "diabetes" }],
         }),
-        assessmentEncrypted: encrypt({}),
+        assessmentEncrypted: encrypt({ snoring_history: "unknown" }),
         questionnaireVersion: 1,
         expiresAt: new Date(Date.now() - 86400000),
       },
@@ -73,6 +75,9 @@ integration("RC02 durable registration and secure cross-session recovery (isolat
     expect((await db.registration.findUniqueOrThrow({
       where: { id: registrationId },
     })).ownerSessionId).toBe(newSessionId);
+    const persisted = await db.registration.findUniqueOrThrow({ where: { id: registrationId } });
+    expect(decrypt(persisted.draftEncrypted)).toMatchObject({ heightCm: 170, weightKg: 70, familyNcdEntries: [{ relationship: "mother", disease: "diabetes" }] });
+    expect(decrypt(persisted.assessmentEncrypted!)).toEqual({ snoring_history: "unknown" });
     expect(await db.registration.count()).toBe(countBefore);
     expect(await db.booking.count({ where: { registrationId } })).toBe(0);
   });

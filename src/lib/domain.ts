@@ -13,38 +13,13 @@ export function normalizePhone(input: string) {
     throw new Error("กรุณาระบุเบอร์มือถือไทยที่ถูกต้อง");
   return "+66" + digits.slice(1);
 }
-export function validThaiId(value: string) {
-  if (!/^\d{13}$/.test(value) || /^(\d)\1{12}$/.test(value)) return false;
-  const sum = [...value.slice(0, 12)].reduce(
-    (n, digit, i) => n + Number(digit) * (13 - i),
-    0,
-  );
-  return (11 - (sum % 11)) % 10 === Number(value[12]);
-}
+export { validThaiId, ageOn } from "./patient-validation";
+import { validThaiId, ageOn } from "./patient-validation";
 export function toGregorian(year: number) {
   return year >= 2400 ? year - 543 : year;
 }
 export function toBuddhist(year: number) {
   return year + 543;
-}
-export function ageOn(birthdate: string, at = new Date()) {
-  const birth = new Date(birthdate + "T00:00:00Z");
-  if (
-    !/^\d{4}-\d{2}-\d{2}$/.test(birthdate) ||
-    !Number.isFinite(birth.getTime()) ||
-    birth.toISOString().slice(0, 10) !== birthdate ||
-    birth > at
-  )
-    throw new Error("วันเกิดไม่ถูกต้อง");
-  let age = at.getUTCFullYear() - birth.getUTCFullYear();
-  if (
-    at.getUTCMonth() < birth.getUTCMonth() ||
-    (at.getUTCMonth() === birth.getUTCMonth() &&
-      at.getUTCDate() < birth.getUTCDate())
-  )
-    age--;
-  if (age > 130) throw new Error("กรุณาตรวจสอบปีเกิด");
-  return age;
 }
 const historySelectionSchema = z.object({
   status: z.enum(["none", "unknown", "specified"]),
@@ -63,7 +38,38 @@ export const personSchema = z
         return false;
       }
     }, "วันเกิดไม่ถูกต้อง"),
-    intakeVersion: z.literal(2).optional(),
+    intakeVersion: z.union([z.literal(2), z.literal(3)]).optional(),
+    registrationMode: z.enum(["individual", "group"]).default("individual"),
+    group: z
+      .object({
+        organizationId: z.string().min(1).max(100),
+        primaryContact: z.string().trim().min(1).max(200),
+        contactPhone: z
+          .string()
+          .max(30)
+          .refine((v) => {
+            try {
+              normalizePhone(v);
+              return true;
+            } catch {
+              return false;
+            }
+          }, "เบอร์โทรผู้ประสานงานไม่ถูกต้อง"),
+        participantReference: z.string().trim().max(100).optional(),
+      })
+      .optional(),
+    registrationPreferences: z
+      .object({
+        packageId: z.string().max(100),
+        addonIds: z.array(z.string().max(100)).max(50),
+        day: z.string().max(10),
+        slotId: z.string().max(100),
+        staffAdvice: z.boolean(),
+      })
+      .optional(),
+    /** Raw measured values; derived BMI is never accepted from the client. */
+    heightCm: z.number().finite().positive().max(300).optional(),
+    weightKg: z.number().finite().positive().max(500).optional(),
     locale: z.enum(["th", "en", "zh-Hans", "my", "km"]).default("th"),
     surgeryHistory: z.string().trim().max(2000).optional(),
     familyNcdEntries: z
@@ -143,7 +149,22 @@ export const personSchema = z
           message: "กรุณาเลือกข้อมูลให้ครบและตรวจรายการที่เพิ่มเอง",
         });
     }
-    if (p.intakeVersion === 2) {
+    if (p.registrationMode === "group" && !p.group)
+      ctx.addIssue({
+        code: "custom",
+        path: ["group"],
+        message: "กรุณาระบุหน่วยงานและผู้ประสานงาน",
+      });
+    if (
+      p.intakeVersion === 3 &&
+      (p.heightCm === undefined || p.weightKg === undefined)
+    )
+      ctx.addIssue({
+        code: "custom",
+        path: [p.heightCm === undefined ? "heightCm" : "weightKg"],
+        message: "กรุณาระบุส่วนสูงและน้ำหนัก",
+      });
+    if (p.intakeVersion === 2 || p.intakeVersion === 3) {
       for (const field of [
         "sex",
         "treatmentRight",
@@ -177,6 +198,13 @@ export const personSchema = z
         path: ["familyNcdDetails"],
         message: "กรุณาระบุญาติและโรค NCD",
       });
+    if ((p.heightCm === undefined) !== (p.weightKg === undefined)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [p.heightCm === undefined ? "heightCm" : "weightKg"],
+        message: "กรุณาระบุส่วนสูงและน้ำหนักให้ครบทั้งสองช่อง",
+      });
+    }
     if (p.documentType === "thai_id" && !validThaiId(p.identifier ?? ""))
       ctx.addIssue({
         code: "custom",

@@ -25,10 +25,10 @@ describe.skipIf(!enabled)("Health Chat isolated MySQL", () => {
   async function call(path: string, token: string, data?: unknown) {
     context.token = token;
     const response = await api(
-      new Request("http://localhost:3036/api/v1/" + path, {
+      new Request("http://localhost:3037/api/v1/" + path, {
         method: data === undefined ? "GET" : "POST",
         headers: {
-          Origin: "http://localhost:3036",
+          Origin: "http://localhost:3037",
           "Content-Type": "application/json",
         },
         ...(data === undefined ? {} : { body: JSON.stringify(data) }),

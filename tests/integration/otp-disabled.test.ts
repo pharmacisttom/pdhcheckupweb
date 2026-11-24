@@ -44,6 +44,7 @@ describe.skipIf(!enabled)(
     const send = vi.fn();
     const person = {
       intakeVersion: 2,
+      heightCm: 170, weightKg: 70,
       firstName: "NoOTP",
       lastName: marker,
       birthdate: "1990-01-01",
@@ -58,10 +59,10 @@ describe.skipIf(!enabled)(
     };
     async function call(path: string, data?: unknown) {
       const r = await api(
-        new Request("http://localhost:3036/api/v1/" + path, {
+        new Request("http://localhost:3037/api/v1/" + path, {
           method: data === undefined ? "GET" : "POST",
           headers: {
-            Origin: "http://localhost:3036",
+            Origin: "http://localhost:3037",
             "Content-Type": "application/json",
           },
           ...(data === undefined ? {} : { body: JSON.stringify(data) }),
@@ -74,11 +75,11 @@ describe.skipIf(!enabled)(
       const u = new URL(process.env.DATABASE_URL!);
       if (
         !["localhost", "127.0.0.1"].includes(u.hostname) ||
-        u.pathname != "/pdh_healthcheck_test"
+        u.pathname != "/pdh_healthcheck_rc01_test"
       )
         throw Error("Isolated test DB only");
       vi.stubEnv("OTP_PROVIDER", "disabled");
-      vi.stubEnv("APP_URL", "http://localhost:3036");
+      vi.stubEnv("APP_URL", "http://localhost:3037");
       vi.stubGlobal("fetch", send);
       original = await db.bookingPolicy.findUniqueOrThrow({
         where: { id: "default" },

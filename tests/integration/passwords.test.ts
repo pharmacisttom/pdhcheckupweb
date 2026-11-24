@@ -18,7 +18,7 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
       await db.$disconnect();
     });
     it("checks the old password, stores a hash, revokes only the owner sessions and audits without secrets", async () => {
-      if (!process.env.DATABASE_URL?.includes("pdh_healthcheck_test"))
+      if (!process.env.DATABASE_URL?.includes("pdh_healthcheck_rc01_test"))
         throw Error("Isolated test database required");
       const original = "Original-" + crypto.randomUUID();
       const replacement = "Replacement-" + crypto.randomUUID();

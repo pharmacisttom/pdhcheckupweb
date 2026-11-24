@@ -1,3 +1,4 @@
+import { isRegistrationCheckpoint } from "@/lib/registration-checkpoint";
 import { assertContactSession, otpRequired } from "./contact-verification";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -85,9 +86,10 @@ export async function submitContactRequest(
           "ข้อมูลหรือราคาประมาณการหมดอายุ กรุณาตรวจสอบอีกครั้ง",
         );
       const person = decrypt<Person>(registration.draftEncrypted);
+      if (isRegistrationCheckpoint(person)) throw new AppError(422, "กรุณากรอกและบันทึกแบบประเมินให้ครบก่อนส่งข้อมูล", "DRAFT_INCOMPLETE");
       assertContactSession(identity, person.phone);
       if (
-        (person.intakeVersion === 2 || input.noticeVersion) &&
+        ((person.intakeVersion === 2 || person.intakeVersion === 3) || input.noticeVersion) &&
         input.noticeVersion !== PRIVACY_VERSION
       )
         throw new AppError(

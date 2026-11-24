@@ -1,3 +1,8 @@
+import {
+  checkpointInput,
+  isRegistrationCheckpoint,
+} from "@/lib/registration-checkpoint";
+import { saveRegistrationCheckpoint } from "./services/registration-checkpoint";
 import { adminCrud } from "./services/admin-crud";
 import { chatRoute } from "./services/chat/router";
 import {
@@ -63,7 +68,7 @@ import bcrypt from "bcryptjs";
 import { matchingOperatorTotpStep } from "@/lib/mfa";
 import { consumeTotpStep } from "./services/totp-replay";
 import { recordSecurityEvent } from "./services/security-events";
-import { randomInt } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import {
@@ -103,6 +108,7 @@ import { approveImport, stageImport } from "./services/imports";
 import {
   questionnaireSchema,
   draftQuestionnaire,
+  draftRc03Proposal,
   approveQuestionnaire,
   updateDraftQuestionnaire,
   archiveQuestionnaire,
@@ -161,9 +167,12 @@ export async function api(req: Request, path: string[]) {
       );
     if (
       !otpRequired() &&
-      ["otp/request", "otp/verify", "contact-requests/recover", "registrations/recover"].includes(
-        resource,
-      )
+      [
+        "otp/request",
+        "otp/verify",
+        "contact-requests/recover",
+        "registrations/recover",
+      ].includes(resource)
     )
       throw new AppError(
         503,
@@ -240,11 +249,19 @@ export async function api(req: Request, path: string[]) {
           .strict(),
       );
       await rateLimit("recovery-rotate:" + s.user.id, 5, 900);
-      const recoveryPasswordValid = await bcrypt.compare(input.password, s.user.passwordHash);
-      const recoveryStep = matchingOperatorTotpStep(decrypt<string>(s.user.mfaSecret), input.mfa);
+      const recoveryPasswordValid = await bcrypt.compare(
+        input.password,
+        s.user.passwordHash,
+      );
+      const recoveryStep = matchingOperatorTotpStep(
+        decrypt<string>(s.user.mfaSecret),
+        input.mfa,
+      );
       if (!recoveryPasswordValid || recoveryStep === null)
         throw new AppError(403, "รหัสผ่านหรือ MFA ไม่ถูกต้อง");
-      if (!(await consumeTotpStep(s.user.id, "privileged-step-up", recoveryStep)))
+      if (
+        !(await consumeTotpStep(s.user.id, "privileged-step-up", recoveryStep))
+      )
         throw new AppError(403, "รหัสผ่านหรือ MFA ไม่ถูกต้อง");
       data = await db.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM User WHERE id=${s.user!.id} FOR UPDATE`;
@@ -381,8 +398,7 @@ export async function api(req: Request, path: string[]) {
         user?.passwordHash ??
           "$2b$12$C6UzMDM.H6dfI/f/IKcEe.5gB28V9G0FM8p8h8Y3w5tQ7sV2Mtq9K",
       );
-      if (!user?.active || !ok)
-        throw new AppError(401, "ข้อมูลเข้าสู่ระบบไม่ถูกต้อง");
+      if (!user?.active || !ok) throw new AppError(401, "ข้อมูลเข้าสู่ระบบไม่ถูกต้อง");
       if (user.activationRequired)
         throw new AppError(
           403,
@@ -397,7 +413,10 @@ export async function api(req: Request, path: string[]) {
         : null;
       if (user.mfaSecret && loginTotpStep === null && !recoveryHash(cleanMfa))
         throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
-      if (loginTotpStep !== null && !(await consumeTotpStep(user.id, "login", loginTotpStep)))
+      if (
+        loginTotpStep !== null &&
+        !(await consumeTotpStep(user.id, "login", loginTotpStep))
+      )
         throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
       securityFailureType = null;
       const old = await identitySession(false);
@@ -418,10 +437,7 @@ export async function api(req: Request, path: string[]) {
           fresh.activationRequired ||
           fresh.mustChangePassword !== user.mustChangePassword
         )
-          throw new AppError(
-            401,
-            "ข้อมูลบัญชีเปลี่ยนแปลง กรุณาเข้าสู่ระบบใหม่",
-          );
+          throw new AppError(401, "ข้อมูลบัญชีเปลี่ยนแปลง กรุณาเข้าสู่ระบบใหม่");
         if (user.mfaSecret && loginTotpStep === null) {
           if (!(await consumeRecoveryCode(tx, user.id, cleanMfa)))
             throw new AppError(401, "รหัส MFA ไม่ถูกต้อง");
@@ -513,8 +529,7 @@ export async function api(req: Request, path: string[]) {
         });
         return true;
       });
-      if (!success)
-        throw new AppError(422, "รหัสไม่ถูกต้อง หมดอายุ หรือเกินจำนวนครั้ง");
+      if (!success) throw new AppError(422, "รหัสไม่ถูกต้อง หมดอายุ หรือเกินจำนวนครั้ง");
       data = { verified: true };
     } else if (method === "GET" && resource === "booking-policy") {
       const policy = await bookingPolicy();
@@ -688,9 +703,30 @@ export async function api(req: Request, path: string[]) {
         preparation: s.preparation,
         componentCodes: s.componentCodes,
       }));
+    } else if (method === "GET" && resource === "organizations/registration") {
+      // Organization names are registration catalog metadata, never member/clinical data.
+      await session();
+      data = await db.organization.findMany({
+        where: { status: "active" },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+        take: 200,
+      });
     } else if (method === "GET" && resource === "questionnaire") {
       const q = await db.questionnaire.findFirst({
-        where: { status: "published", approvedBy: { not: null } },
+        where: {
+          status: "published",
+          approvedBy: { not: null },
+          ...(new URL(req.url).searchParams.has("version")
+            ? {
+                version: z.coerce
+                  .number()
+                  .int()
+                  .positive()
+                  .parse(new URL(req.url).searchParams.get("version")),
+              }
+            : {}),
+        },
         orderBy: { version: "desc" },
       });
       if (!q) throw new AppError(503, "แบบประเมินยังไม่ได้รับอนุมัติ");
@@ -702,6 +738,14 @@ export async function api(req: Request, path: string[]) {
           q.rules as RiskRule[],
         ),
       };
+    } else if (method === "POST" && resource === "registrations/draft") {
+      const s = (await session())!;
+      assertContactSession(s);
+      await rateLimit("registration-checkpoint:" + s.id, 180, 600);
+      data = await saveRegistrationCheckpoint(
+        s.id,
+        await body(req, checkpointInput),
+      );
     } else if (method === "POST" && resource === "registrations") {
       const s = (await session())!;
       assertContactSession(s);
@@ -710,6 +754,7 @@ export async function api(req: Request, path: string[]) {
         req,
         z.object({
           id: str.optional(),
+          requestId: z.uuid().optional(),
           person: personSchema,
           answers: assessmentSchema,
           reuseIntakeAnswers: z.array(z.string().max(80)).max(20).optional(),
@@ -735,10 +780,7 @@ export async function api(req: Request, path: string[]) {
           ? intakeReuseValue(source, input.person)
           : undefined;
         if (value === undefined)
-          throw new AppError(
-            422,
-            "แบบประเมินเปลี่ยนแปลง กรุณาโหลดแบบฟอร์มใหม่",
-          );
+          throw new AppError(422, "แบบประเมินเปลี่ยนแปลง กรุณาโหลดแบบฟอร์มใหม่");
         input.answers[id] = value;
       }
       const errors = validateAnswers(q.questions as Question[], input.answers);
@@ -748,39 +790,68 @@ export async function api(req: Request, path: string[]) {
         input.answers,
         q.version,
       );
+      const draftToken = randomUUID();
       const record = {
-        draftEncrypted: encrypt(input.person),
+        draftEncrypted: encrypt({ ...input.person, _draftToken: draftToken }),
         assessmentEncrypted: encrypt(input.answers),
         questionnaireVersion: q.version,
         expiresAt: new Date(Date.now() + 24 * 3600000),
       };
       data = await db.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM Session WHERE id = ${s.id} FOR UPDATE`;
-        if (input.id) {
-          const existing = await tx.registration.findFirst({
-            where: { id: input.id, ownerSessionId: s.id, booking: null },
+        const candidateId =
+          input.id ??
+          (input.requestId
+            ? privateHash("registration:" + s.id + ":" + input.requestId)
+            : undefined);
+        const existing = candidateId
+          ? await tx.registration.findFirst({
+              where: { id: candidateId, ownerSessionId: s.id, booking: null },
+            })
+          : null;
+        if (input.id && !existing) throw new AppError(404, "ไม่พบแบบร่าง");
+        if (
+          (!existing ||
+            isRegistrationCheckpoint(decrypt(existing.draftEncrypted))) &&
+          (input.person.heightCm === undefined ||
+            input.person.weightKg === undefined)
+        )
+          throw new AppError(422, "กรุณาระบุส่วนสูงและน้ำหนักสำหรับการลงทะเบียนใหม่");
+        const organizationId =
+          input.person.registrationMode === "group"
+            ? input.person.group?.organizationId
+            : undefined;
+        if (organizationId) {
+          await tx.$queryRaw`SELECT id FROM Organization WHERE id = ${organizationId} FOR UPDATE`;
+          const organization = await tx.organization.findUnique({
+            where: { id: organizationId },
           });
-          if (!existing) throw new AppError(404, "ไม่พบแบบร่าง");
+          if (!organization || organization.status !== "active")
+            throw new AppError(422, "หน่วยงานไม่เปิดรับลงทะเบียน");
+        }
+        if (existing) {
           if (
             await tx.contactRequest.findUnique({
-              where: { registrationId: input.id },
+              where: { registrationId: existing.id },
             })
           )
-            throw new AppError(
-              409,
-              "ส่งข้อมูลแล้ว กรุณาติดต่อเจ้าหน้าที่เพื่อแก้ไข",
-            );
+            throw new AppError(409, "ส่งข้อมูลแล้ว กรุณาติดต่อเจ้าหน้าที่เพื่อแก้ไข");
         }
-        const r = input.id
+        const r = existing
           ? await tx.registration.update({
-              where: { id: input.id },
-              data: record,
+              where: { id: existing.id },
+              data: { ...record, organizationId: organizationId ?? null },
             })
           : await tx.registration.create({
-              data: { ...record, ownerSessionId: s.id },
+              data: {
+                ...record,
+                ...(candidateId ? { id: candidateId } : {}),
+                ownerSessionId: s.id,
+                organizationId,
+              },
             });
         await audit(tx, s.id, "registration.saved", r.id);
-        return { id: r.id, decisions };
+        return { id: r.id, decisions, draftToken };
       });
     } else if (method === "POST" && resource === "registrations/recover") {
       const s = (await session())!;
@@ -793,8 +864,16 @@ export async function api(req: Request, path: string[]) {
           birthdate: z.iso.date(),
         }),
       );
-      await rateLimit("registration-recover-ref:" + privateHash(input.registrationId), 8, 3600);
-      data = await recoverRegistrationDraft(s.id, input.registrationId, input.birthdate);
+      await rateLimit(
+        "registration-recover-ref:" + privateHash(input.registrationId),
+        8,
+        3600,
+      );
+      data = await recoverRegistrationDraft(
+        s.id,
+        input.registrationId,
+        input.birthdate,
+      );
     } else if (method === "GET" && resource === "registrations/draft") {
       const s = (await session())!;
       const submitted = await db.contactRequest.findMany({
@@ -987,20 +1066,38 @@ export async function api(req: Request, path: string[]) {
             : 503;
     if (status === 401 && securityFailureType) {
       try {
-        await recordSecurityEvent(securityFailureType, securitySubject, resource);
+        await recordSecurityEvent(
+          securityFailureType,
+          securitySubject,
+          resource,
+        );
       } catch {
         // Authentication denial remains denied; surface unavailable audit storage explicitly.
         status = 503;
         securityAuditFailed = true;
-        console.error(JSON.stringify({ event: "security_event.write_failed", correlationId }));
+        console.error(
+          JSON.stringify({
+            event: "security_event.write_failed",
+            correlationId,
+          }),
+        );
       }
     } else if (status === 403) {
       try {
-        await recordSecurityEvent("authorization.denied", securitySubject, resource);
+        await recordSecurityEvent(
+          "authorization.denied",
+          securitySubject,
+          resource,
+        );
       } catch {
         status = 503;
         securityAuditFailed = true;
-        console.error(JSON.stringify({ event: "security_event.write_failed", correlationId }));
+        console.error(
+          JSON.stringify({
+            event: "security_event.write_failed",
+            correlationId,
+          }),
+        );
       }
     }
     if (status >= 500) {
@@ -1013,7 +1110,9 @@ export async function api(req: Request, path: string[]) {
           method: ["GET", "POST"].includes(method) ? method : "OTHER",
           code:
             typeof code === "string" &&
-            /^(P[0-9]{4}|NOT_CONFIGURED|OTP_DISABLED|PROVIDER_UNCONFIGURED)$/.test(code)
+            /^(P[0-9]{4}|NOT_CONFIGURED|OTP_DISABLED|PROVIDER_UNCONFIGURED)$/.test(
+              code,
+            )
               ? code
               : "UNEXPECTED",
         }),
@@ -1032,10 +1131,9 @@ export async function api(req: Request, path: string[]) {
     return NextResponse.json(
       {
         error: {
-          code:
-            securityAuditFailed
-              ? "SECURITY_AUDIT_UNAVAILABLE"
-              : (error as { code?: string })?.code === "P2002"
+          code: securityAuditFailed
+            ? "SECURITY_AUDIT_UNAVAILABLE"
+            : (error as { code?: string })?.code === "P2002"
               ? "CONFLICT"
               : error instanceof AppError
                 ? error.code
@@ -1108,11 +1206,16 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
       orderBy: { name: "asc" },
     });
   }
-  if (path.join("/") === "registrations/pending/detail" && req.method === "GET") {
+  if (
+    path.join("/") === "registrations/pending/detail" &&
+    req.method === "GET"
+  ) {
     const staff = await guard("bookings:read");
-    const registrationId = z.string().min(10).max(100).parse(
-      new URL(req.url).searchParams.get("id"),
-    );
+    const registrationId = z
+      .string()
+      .min(10)
+      .max(100)
+      .parse(new URL(req.url).searchParams.get("id"));
     const registration = await db.registration.findUnique({
       where: { id: registrationId },
       include: { booking: { select: { id: true } } },
@@ -1147,13 +1250,15 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
     await guard("bookings:read");
     // Staff triage queue: pending registration is not a confirmed booking.
     // Never decrypt clinical/personal details in this list response.
-    const pending = await db.$queryRaw<Array<{
-      id: string;
-      createdAt: Date;
-      updatedAt: Date;
-      expiresAt: Date;
-      questionnaireVersion: number;
-    }>>`SELECT r.id, r.createdAt, r.updatedAt, r.expiresAt,
+    const pending = await db.$queryRaw<
+      Array<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        expiresAt: Date;
+        questionnaireVersion: number;
+      }>
+    >`SELECT r.id, r.createdAt, r.updatedAt, r.expiresAt,
       r.questionnaireVersion
       FROM Registration r
       LEFT JOIN Booking b ON b.registrationId = r.id
@@ -1171,47 +1276,100 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
   }
   if (path.join("/") === "contact-requests" && req.method === "GET") {
     const s = await guard("bookings:read");
-    const rows = await db.contactRequest.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    });
+    const params = new URL(req.url).searchParams;
+    const page = z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(100000)
+      .parse(params.get("page") ?? 1);
+    const pageSize = z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(50)
+      .parse(params.get("pageSize") ?? 20);
+    const search = z
+      .string()
+      .trim()
+      .max(80)
+      .parse(params.get("search") ?? "");
+    const status = z
+      .enum([
+        "",
+        "pending",
+        "contacted",
+        "submitted",
+        "under_review",
+        "awaiting_information",
+        "ready_to_schedule",
+        "scheduled",
+        "closed",
+      ])
+      .parse(params.get("status") ?? "");
+    const where = {
+      ...(status ? { status } : {}),
+      ...(search ? { reference: { contains: search } } : {}),
+    };
+    const [rows, total] = await db.$transaction([
+      db.contactRequest.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true,
+          reference: true,
+          status: true,
+          createdAt: true,
+          assignedTo: true,
+          entitlementStatus: true,
+        },
+      }),
+      db.contactRequest.count({ where }),
+    ]);
     await db.$transaction((tx) =>
       audit(tx, s.user!.id, "contact_requests.viewed", "contact-requests"),
     );
-    return Promise.all(
-      rows.map(async (r) => {
-        const details = decrypt<{ questionnaireVersion: number }>(
-          r.payloadEncrypted,
-        );
-        const questionnaire =
-          typeof details.questionnaireVersion === "number"
-            ? await db.questionnaire.findUnique({
-                where: { version: details.questionnaireVersion },
-              })
-            : null;
-        return {
-          id: r.id,
-          reference: r.reference,
-          status: r.status,
-          createdAt: r.createdAt,
-          bookingId: r.bookingId,
-          assignedTo: r.assignedTo,
-          entitlementStatus: r.entitlementStatus,
-          quoteId: r.quoteId,
-          proposal: r.quoteId
-            ? await db.quote.findUnique({
-                where: { id: r.quoteId },
-                select: { snapshot: true, total: true, expiresAt: true },
-              })
-            : null,
-          acceptedAt: r.acceptedAt,
-          details,
-          questions: questionnaire?.questions ?? [],
-          review: r.reviewEncrypted ? decrypt(r.reviewEncrypted) : {},
-          note: r.noteEncrypted ? decrypt<string>(r.noteEncrypted) : "",
-        };
-      }),
+    // Lists never decrypt patient payloads or include names, phones or clinical answers.
+    return { rows, total, page, pageSize };
+  }
+  if (path.join("/") === "contact-requests/detail" && req.method === "GET") {
+    const s = await guard("bookings:read");
+    const id = str.parse(new URL(req.url).searchParams.get("id"));
+    const r = await db.contactRequest.findUnique({ where: { id } });
+    if (!r) throw new AppError(404, "ไม่พบคำขอ");
+    // Audit must succeed before disclosing decrypted details.
+    await db.$transaction((tx) =>
+      audit(tx, s.user!.id, "contact_request.detail_viewed", id),
     );
+    const details = decrypt<{ questionnaireVersion: number }>(
+      r.payloadEncrypted,
+    );
+    const questionnaire = await db.questionnaire.findUnique({
+      where: { version: details.questionnaireVersion },
+    });
+    return {
+      id: r.id,
+      reference: r.reference,
+      status: r.status,
+      createdAt: r.createdAt,
+      bookingId: r.bookingId,
+      assignedTo: r.assignedTo,
+      entitlementStatus: r.entitlementStatus,
+      quoteId: r.quoteId,
+      acceptedAt: r.acceptedAt,
+      details,
+      proposal: r.quoteId
+        ? await db.quote.findUnique({
+            where: { id: r.quoteId },
+            select: { snapshot: true, total: true, expiresAt: true },
+          })
+        : null,
+      questions: questionnaire?.questions ?? [],
+      review: r.reviewEncrypted ? decrypt(r.reviewEncrypted) : {},
+      note: r.noteEncrypted ? decrypt<string>(r.noteEncrypted) : "",
+    };
   }
   if (path.join("/") === "contact-requests/status" && req.method === "POST") {
     const s = await guard("bookings:write");
@@ -1240,25 +1398,36 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
       take: 50,
     });
   }
+  if (resource === "questionnaires/rc03-draft" && method === "POST") {
+    const s = await guard("questionnaire:write");
+    const input = await body(req, z.object({ sourceId: str }));
+    return draftRc03Proposal(input.sourceId, s.user!.id);
+  }
   if (resource === "questionnaires" && method === "POST") {
     const s = await guard("questionnaire:write");
     return draftQuestionnaire(await body(req, questionnaireSchema), s.user!.id);
   }
   if (resource === "questionnaires/update" && method === "POST") {
     const s = await guard("questionnaire:write");
-    const input = await body(req, questionnaireSchema.safeExtend({
-      id: str,
-      revision: z.number().int().nonnegative(),
-    }));
+    const input = await body(
+      req,
+      questionnaireSchema.safeExtend({
+        id: str,
+        revision: z.number().int().nonnegative(),
+      }),
+    );
     return updateDraftQuestionnaire(input, s.user!.id);
   }
   if (resource === "questionnaires/archive" && method === "POST") {
     const s = await guard("questionnaire:write");
-    const input = await body(req, z.object({
-      id: str,
-      revision: z.number().int().nonnegative(),
-      reason: z.string().trim().min(3).max(500),
-    }));
+    const input = await body(
+      req,
+      z.object({
+        id: str,
+        revision: z.number().int().nonnegative(),
+        reason: z.string().trim().min(3).max(500),
+      }),
+    );
     return archiveQuestionnaire(input, s.user!.id);
   }
   if (resource === "questionnaires/approve" && method === "POST") {
@@ -1317,10 +1486,7 @@ async function adminApi(req: Request, path: string[]): Promise<unknown> {
       if (input.capacity < booked + held)
         throw new AppError(409, "ลดความจุต่ำกว่าจำนวนจองและสำรองไม่ได้");
       if (input.blackout && booked)
-        throw new AppError(
-          409,
-          "มีนัดหมายอยู่ ต้องจัดการนัดเดิมก่อนปิดวันให้บริการ",
-        );
+        throw new AppError(409, "มีนัดหมายอยู่ ต้องจัดการนัดเดิมก่อนปิดวันให้บริการ");
       await tx.dayCapacity.update({
         where: { id: input.day },
         data: { capacity: input.capacity, blackout: input.blackout },

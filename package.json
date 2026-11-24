@@ -15,7 +15,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "format": "prettier --write src prisma tests docs",
-    "test:db": "node scripts/test-db.mjs",
+    "test:db": "node scripts/test-rc03-integration.mjs --all",
     "test:harness": "node --test scripts/test-db-guard.test.mjs",
     "api:contract": "tsx scripts/generate-contract.ts",
     "test:unit": "vitest run tests/unit",
@@ -36,7 +36,10 @@
     "promote:dry": "tsx scripts/promote-config-data.ts --dry-run",
     "promote:apply": "tsx scripts/promote-config-data.ts --apply",
     "deploy:prod:prepare": "bash scripts/run-production-deploy.sh prepare",
-    "deploy:prod:apply": "bash scripts/run-production-deploy.sh apply"
+    "deploy:prod:apply": "bash scripts/run-production-deploy.sh apply",
+    "test:rc03:db": "node scripts/test-rc03-integration.mjs",
+    "test:rc03:ui": "playwright test --config playwright.rc03-ui.config.ts",
+    "test:integration": "node scripts/test-rc03-integration.mjs --all"
   },
   "keywords": [],
   "author": "",
@@ -54,7 +57,7 @@
     "exceljs": "^4.4.0",
     "lucide-react": "^1.61.0",
     "mammoth": "^1.13.0",
-    "next": "^16.4.2",
+    "next": "16.4.5",
     "nodemailer": "^10.3.1",
     "otpauth": "^9.5.2",
     "pdf-parse": "^2.4.5",
@@ -79,7 +82,7 @@
     "@types/react-dom": "^19.3.0",
     "@types/yauzl": "^3.4.0",
     "eslint": "^9.39.5",
-    "eslint-config-next": "^16.4.2",
+    "eslint-config-next": "16.4.5",
     "prettier": "^3.9.10",
     "prisma": "^6.19.3",
     "tailwindcss": "^4.3.3",
@@ -95,6 +98,7 @@
     "deepmerge-ts": "^8.0.2",
     "exceljs": {
       "uuid": "^11.1.1"
-    }
+    },
+    "effect": "3.22.1"
   }
 }

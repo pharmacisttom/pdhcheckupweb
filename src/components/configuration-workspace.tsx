@@ -1,4 +1,6 @@
 "use client";
+import { questionnaireInventory } from "@/lib/rc03-questionnaire";
+import type { Question, RiskRule } from "@/lib/domain";
 import { ManagedRecords } from "./managed-records";
 import { useEffect, useState } from "react";
 import { request, dateTime } from "@/lib/client";
@@ -16,8 +18,8 @@ type Questionnaire = {
   revision: number;
   version: number;
   status: string;
-  questions: unknown[];
-  rules: unknown[];
+  questions: Question[];
+  rules: RiskRule[];
   createdAt: string;
 };
 type CalendarDay = {
@@ -134,14 +136,11 @@ export function ConfigurationWorkspace({
         <>
           <section className="card" style={{ marginBottom: 24 }}>
             <h2>
-              {editing
-                ? "แก้ไขแบบประเมินฉบับร่าง"
-                : "สร้างแบบประเมินเวอร์ชันใหม่"}
+              {editing ? "แก้ไขแบบประเมินฉบับร่าง" : "สร้างแบบประเมินเวอร์ชันใหม่"}
             </h2>
             <div className="alert">
               รูปแบบ JSON สำหรับเจ้าหน้าที่ผู้กำหนดแบบประเมิน
-              คำแนะนำต้องผ่านการทบทวนทางคลินิกก่อนกดอนุมัติ
-              ไม่มีการสั่งตรวจอัตโนมัติ
+              คำแนะนำต้องผ่านการทบทวนทางคลินิกก่อนกดอนุมัติ ไม่มีการสั่งตรวจอัตโนมัติ
             </div>
             <label className="field">
               คำถามและกฎฉบับร่าง
@@ -181,7 +180,39 @@ export function ConfigurationWorkspace({
                 {q.questions.length} คำถาม · {q.rules.length} กฎ ·{" "}
                 {dateTime(q.createdAt)}
               </p>
+              <details>
+                <summary>รายการคำถามและข้อเสนอให้แพทย์ทบทวน</summary>
+                <pre
+                  style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+                >
+                  {JSON.stringify(
+                    questionnaireInventory(q.questions, q.rules),
+                    null,
+                    2,
+                  )}
+                </pre>
+                <p>
+                  ข้อเสนออาจซ้ำกัน ต้องทบทวนข้อความ เงื่อนไข และคำแปลก่อนแก้ไข
+                  ไม่ลบคำตอบหรือรหัสคำถามเดิมอัตโนมัติ
+                </p>
+              </details>
               <div className="actions">
+                <button
+                  className="button secondary small"
+                  disabled={
+                    busy ||
+                    q.questions.some((item) => item.id === "snoring_history")
+                  }
+                  onClick={() =>
+                    void mutate(() =>
+                      request("admin/questionnaires/rc03-draft", {
+                        sourceId: q.id,
+                      }),
+                    )
+                  }
+                >
+                  สร้างฉบับร่าง RC03 เพื่อแพทย์ทบทวน
+                </button>
                 <button
                   className="button secondary small"
                   onClick={() => {

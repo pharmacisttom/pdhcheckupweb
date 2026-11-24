@@ -1,6 +1,52 @@
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { AppError, audit } from "@/lib/security";
+import { proposeRc03Questionnaire } from "@/lib/rc03-questionnaire";
+import type { Question, RiskRule } from "@/lib/domain";
+
+/** Create a reviewable, idempotent proposal; published content is never updated. */
+export async function draftRc03Proposal(sourceId: string, actorId: string) {
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM Questionnaire WHERE id = ${sourceId} FOR UPDATE`;
+    const source = await tx.questionnaire.findUnique({
+      where: { id: sourceId },
+    });
+    if (!source) throw new AppError(404, "ไม่พบแบบประเมินต้นฉบับ");
+    if (
+      (source.questions as Question[]).some((q) => q.id === "snoring_history")
+    )
+      throw new AppError(409, "มีคำถามประวัติกรนแล้ว โปรดทบทวนฉบับเดิม");
+    const proposal = questionnaireSchema.parse(
+      proposeRc03Questionnaire(
+        source.questions as Question[],
+        source.rules as RiskRule[],
+      ),
+    );
+    const existing = await tx.questionnaire.findFirst({
+      where: {
+        status: "draft",
+        questions: { equals: proposal.questions },
+        rules: { equals: proposal.rules },
+      },
+    });
+    if (existing)
+      return {
+        id: existing.id,
+        version: existing.version,
+        status: existing.status,
+      };
+    const latest = await tx.questionnaire.findFirst({
+      orderBy: { version: "desc" },
+    });
+    const drafted = await tx.questionnaire.create({
+      data: { version: (latest?.version ?? 0) + 1, ...proposal },
+    });
+    await audit(tx, actorId, "questionnaire.rc03_drafted", drafted.id, {
+      sourceVersion: source.version,
+    });
+    return { id: drafted.id, version: drafted.version, status: drafted.status };
+  });
+}
 export const questionSchema = z
   .object({
     translations: z
@@ -112,8 +158,7 @@ export async function approveQuestionnaire(id: string, actorId: string) {
   return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM Questionnaire WHERE id = ${id} FOR UPDATE`;
     const q = await tx.questionnaire.findUniqueOrThrow({ where: { id } });
-    if (q.status !== "draft")
-      throw new AppError(409, "อนุมัติได้เฉพาะฉบับร่าง");
+    if (q.status !== "draft") throw new AppError(409, "อนุมัติได้เฉพาะฉบับร่าง");
     questionnaireSchema.parse({ questions: q.questions, rules: q.rules });
     await tx.questionnaire.update({
       where: { id },
@@ -142,7 +187,10 @@ export async function updateDraftQuestionnaire(
       },
     });
     if (updated.count !== 1)
-      throw new AppError(409, "แบบประเมินมีการเปลี่ยนแปลง หรือไม่ใช่ฉบับร่าง กรุณาโหลดใหม่");
+      throw new AppError(
+        409,
+        "แบบประเมินมีการเปลี่ยนแปลง หรือไม่ใช่ฉบับร่าง กรุณาโหลดใหม่",
+      );
     await audit(tx, actorId, "questionnaire.updated", input.id);
     return { id: input.id, revision: input.revision + 1, status: "draft" };
   });
@@ -153,12 +201,18 @@ export async function archiveQuestionnaire(
   actorId: string,
 ) {
   return db.$transaction(async (tx) => {
-    const current = await tx.questionnaire.findUnique({ where: { id: input.id } });
+    const current = await tx.questionnaire.findUnique({
+      where: { id: input.id },
+    });
     if (!current || current.status === "archived")
       throw new AppError(409, "ไม่พบแบบประเมินที่สามารถเก็บเข้าคลังได้");
     if (current.status === "published") {
       const otherPublished = await tx.questionnaire.count({
-        where: { id: { not: input.id }, status: "published", approvedBy: { not: null } },
+        where: {
+          id: { not: input.id },
+          status: "published",
+          approvedBy: { not: null },
+        },
       });
       if (otherPublished === 0)
         throw new AppError(409, "ไม่สามารถเก็บแบบประเมินที่เผยแพร่ฉบับสุดท้ายเข้าคลังได้");
@@ -169,7 +223,9 @@ export async function archiveQuestionnaire(
     });
     if (updated.count !== 1)
       throw new AppError(409, "แบบประเมินถูกแก้ไขโดยผู้อื่น กรุณาโหลดใหม่");
-    await audit(tx, actorId, "questionnaire.archived", input.id, { reason: input.reason });
+    await audit(tx, actorId, "questionnaire.archived", input.id, {
+      reason: input.reason,
+    });
     return { id: input.id, status: "archived", revision: input.revision + 1 };
   });
 }

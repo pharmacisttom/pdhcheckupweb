@@ -30,7 +30,7 @@ describe.skipIf(!enabled)(
     }[] = [];
     const marker = crypto.randomUUID();
     beforeAll(async () => {
-      if (!process.env.DATABASE_URL?.includes("pdh_healthcheck_test"))
+      if (!process.env.DATABASE_URL?.includes("pdh_healthcheck_rc01_test"))
         throw new Error("Isolated test database required");
       const qv = Math.floor(Date.now() / 1000);
       const q = await db.questionnaire.create({

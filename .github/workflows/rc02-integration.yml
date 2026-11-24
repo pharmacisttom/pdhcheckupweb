@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - feature/rc02-integrated-registration-recovery
+      - feature/rc03-clinician-feedback-7
   pull_request:
     branches:
       - feature/rc02-mobile-sweetalert
+      - feature/rc02-integrated-registration-recovery
   workflow_dispatch:
 
 permissions:
@@ -48,6 +50,8 @@ jobs:
           echo "OTP_PEPPER=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
       - name: Install locked dependencies
         run: npm ci
+      - name: Audit locked dependencies
+        run: npm audit --audit-level=low
       - name: Prisma client generation (no DB writes)
         run: npx prisma generate
       - name: Start local MySQL and provision dedicated synthetic RC01 database
@@ -77,8 +81,10 @@ jobs:
             await db.$disconnect();
           }
           JS
+      - name: Verify migrated isolated schema matches Prisma (read-only)
+        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
       - name: Registration recovery persistence integration
-        run: npx vitest run tests/integration/registration-recovery.test.ts
+        run: node scripts/test-rc03-integration.mjs --all
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
@@ -97,6 +103,8 @@ jobs:
           chmod 600 .env
       - name: Critical Radix/SweetAlert browser smoke (fail fast)
         run: npm run test:admin-crud:e2e -- tests/e2e/admin-crud.spec.ts --grep "organization create edit disable"
+      - name: Repeated registration consent and answer-persistence regression
+        run: node scripts/test-admin-crud-e2e.mjs tests/e2e/registration-mobile.spec.ts --grep "registration keeps fields between steps and reports server success only after confirmation" --repeat-each=5 --trace=on --output=playwright-report/registration-traces
       - name: Admin and mobile browser E2E (clean exit required)
         run: npm run test:admin-crud:e2e
       - name: Clean up ephemeral test config
@@ -111,5 +119,6 @@ jobs:
             test-results/
             playwright-report/
             docs/qa/2026-11-16/rc02-*.png
+            docs/qa/2026-11-23/rc03-*.png
           if-no-files-found: ignore
           retention-days: 7

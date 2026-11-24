@@ -29,10 +29,10 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
     };
     async function post(serviceIds: string[]) {
       const response = await api(
-        new Request("http://localhost:3036/api/v1/admin/packages", {
+        new Request("http://localhost:3037/api/v1/admin/packages", {
           method: "POST",
           headers: {
-            Origin: "http://localhost:3036",
+            Origin: "http://localhost:3037",
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ ...input, serviceIds }),
@@ -45,11 +45,11 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
       const url = new URL(process.env.DATABASE_URL!);
       if (
         !["localhost", "127.0.0.1"].includes(url.hostname) ||
-        url.pathname !== "/pdh_healthcheck_test"
+        url.pathname !== "/pdh_healthcheck_rc01_test"
       )
         throw Error("Isolated test database required");
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("APP_URL", "http://localhost:3036");
+      vi.stubEnv("APP_URL", "http://localhost:3037");
       userId = (
         await db.user.create({
           data: {
@@ -118,7 +118,7 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "true")(
     });
     it("saves the chosen active service in a draft without requiring an individual service price", async () => {
       const response = await api(
-        new Request("http://localhost:3036/api/v1/services?q=" + marker),
+        new Request("http://localhost:3037/api/v1/services?q=" + marker),
         ["services"],
       );
       const catalog = (await response.json()).data;
