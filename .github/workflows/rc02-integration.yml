@@ -50,6 +50,8 @@ jobs:
           echo "OTP_PEPPER=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
       - name: Install locked dependencies
         run: npm ci
+      - name: Audit locked dependencies
+        run: npm audit --audit-level=low
       - name: Prisma client generation (no DB writes)
         run: npx prisma generate
       - name: Start local MySQL and provision dedicated synthetic RC01 database
@@ -101,6 +103,8 @@ jobs:
           chmod 600 .env
       - name: Critical Radix/SweetAlert browser smoke (fail fast)
         run: npm run test:admin-crud:e2e -- tests/e2e/admin-crud.spec.ts --grep "organization create edit disable"
+      - name: Repeated registration consent and answer-persistence regression
+        run: node scripts/test-admin-crud-e2e.mjs tests/e2e/registration-mobile.spec.ts --grep "registration keeps fields between steps and reports server success only after confirmation" --repeat-each=5 --trace=on
       - name: Admin and mobile browser E2E (clean exit required)
         run: npm run test:admin-crud:e2e
       - name: Clean up ephemeral test config

@@ -10,11 +10,13 @@ const env = {
   ...process.env,
   DATABASE_URL: process.env.DATABASE_URL,
   APP_URL: "http://localhost:3037",
-  NODE_ENV: "development",
+  NODE_ENV: "production",
   PDH_TEST_ALLOW_SYNTHETIC_FIXTURES: "true",
-  OTP_PROVIDER: "test",
+  OTP_PROVIDER: "disabled",
   EMAIL_PROVIDER: "disabled",
-  PDH_TEST_DIST_DIR: ".local/next-admin-crud-e2e",
+  PDH_TEST_DIST_DIR: ".next",
+  PORT: "3037",
+  HOSTNAME: "localhost",
   PDH_TEST_E2E_MANAGED_SERVER: "true",
 };
 const { PrismaClient } = await import("@prisma/client");
@@ -37,7 +39,7 @@ for (const host of ["localhost", "127.0.0.1"]) {
 
 const server = spawn(
   process.execPath,
-  ["node_modules/next/dist/bin/next", "dev", "--webpack", "--hostname=localhost", "--port=3037"],
+  ["scripts/start-browser-e2e.mjs"],
   { cwd: process.cwd(), env, windowsHide: true, stdio: "inherit" },
 );
 const stopTree = (pid) => {

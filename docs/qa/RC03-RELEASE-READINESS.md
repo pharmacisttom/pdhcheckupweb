@@ -1,3 +1,5 @@
+ > Recovery update (2026-11-24): run 45133653177 failed during pre-consent initialization after the historical results below. See [CI failure recovery evidence](2026-11-24/RC03-CI-FAILURE-RECOVERY.md) for diagnosis, local verification, latest CI and remaining clinical/UAT gates.
+
 # RC03 Release Readiness & Go-Live Gates
 
 **Project:** PDH Smart Health Check — Pluak Daeng Hospital  

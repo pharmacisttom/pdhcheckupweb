@@ -1389,7 +1389,7 @@ export function RegistrationWizard() {
                               <input
                                 type="checkbox"
                                 checked={
-                                  !!currentPerson.familyNcdEntries?.some(
+                                  !!getValues("familyNcdEntries")?.some(
                                     (f) =>
                                       f?.relationship === relationship &&
                                       f?.disease === disease,
