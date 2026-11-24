@@ -104,7 +104,7 @@ jobs:
       - name: Critical Radix/SweetAlert browser smoke (fail fast)
         run: npm run test:admin-crud:e2e -- tests/e2e/admin-crud.spec.ts --grep "organization create edit disable"
       - name: Repeated registration consent and answer-persistence regression
-        run: node scripts/test-admin-crud-e2e.mjs tests/e2e/registration-mobile.spec.ts --grep "registration keeps fields between steps and reports server success only after confirmation" --repeat-each=5 --trace=on
+        run: node scripts/test-admin-crud-e2e.mjs tests/e2e/registration-mobile.spec.ts --grep "registration keeps fields between steps and reports server success only after confirmation" --repeat-each=5 --trace=on --output=playwright-report/registration-traces
       - name: Admin and mobile browser E2E (clean exit required)
         run: npm run test:admin-crud:e2e
       - name: Clean up ephemeral test config

@@ -1,4 +1,4 @@
- > Recovery update (2026-11-24): run 45133653177 failed during pre-consent initialization after the historical results below. See [CI failure recovery evidence](2026-11-24/RC03-CI-FAILURE-RECOVERY.md) for diagnosis, local verification, latest CI and remaining clinical/UAT gates.
+ > Recovery update (2026-11-24): run 45133653177 failed during pre-consent initialization after the historical results below. Recovery code CI [45319534318](https://github.com/pharmacisttom/pdhcheckupweb/actions/runs/45319534318) passed: targeted 5/5, full browser 21/21, integration 108/108, unit 199/199, audit 0. See [CI failure recovery evidence](2026-11-24/RC03-CI-FAILURE-RECOVERY.md) for diagnosis, local verification, latest CI and remaining clinical/UAT gates.
 
 # RC03 Regression & Test Verification Report
 

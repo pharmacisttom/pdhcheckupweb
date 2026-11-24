@@ -1,6 +1,6 @@
 # RC03 CI failure recovery — 2026-11-24
 
-Status: local recovery gates PASS; latest pushed HEAD CI verification follows below. Production remains NO-GO pending hospital/clinical UAT. No deployment, merge, force push, Production connection or clinical publication in this recovery.
+Status: recovery code CI PASS on `460b0a9d109ace54e98cf05bab25a110b90806a0`; see verified CI and current-HEAD checks below. Production remains NO-GO pending hospital/clinical UAT. No deployment, merge, force push, Production connection or clinical publication in this recovery.
 
 ## Baseline and preserved work
 
@@ -58,4 +58,14 @@ Reproduce after `npm ci`, `npx prisma generate`, and `npm run build` using only 
 - `npm run test:admin-crud:e2e`
 - `npm run test:integration`, `npm run test:unit`, `npm run test:harness`, `npm run typecheck`, `npm run lint`, `npm audit --audit-level=low`.
 
-The failed run's missing trace is an evidence gap, not a PASS. Future failures retain traces in the standard Actions artifact. Latest-HEAD CI result will be linked in PR #9 and recorded below after its run completes.
+The failed run's missing trace is an evidence gap, not a PASS. Future failures retain traces in the standard Actions artifact. Targeted passing traces now use `playwright-report/registration-traces` so the following full suite cannot erase them; this folder is already included by the artifact upload. A separate local output-retention check passed (1/1) and produced trace.zip.
+
+## Verified CI evidence
+
+- [Successful recovery run 45319534318](https://github.com/pharmacisttom/pdhcheckupweb/actions/runs/45319534318), job `138194451334`, source HEAD `460b0a9d109ace54e98cf05bab25a110b90806a0`. Every job step completed successfully.
+- Clean install and npm audit: 0 vulnerabilities. Isolated identity/grants and 14 migrations verified; schema diff: “No difference detected.”
+- Full integration: 16 files / 108 tests PASS. Unit: 24 files / 199 tests PASS. DB guard: 5/5 PASS. Typecheck, lint (one existing warning), production build: PASS.
+- Critical smoke: 1/1 PASS (4.5s). Exact registration regression: 5/5 PASS (25.9s). Full browser: 21/21 PASS (36.8s), including real group registration/reload and admin modal, plus API-mocked public regressions. No retry or timeout increase.
+- Artifact: `rc02-e2e-45319534318`, ID `14887034341`, contains the standard screenshot evidence; expiry 2026-12-01. The follow-up output-directory change retains the five passing targeted traces in future artifacts as well.
+- The follow-up documentation/trace-retention commit does not change application code. [Current PR HEAD checks](https://github.com/pharmacisttom/pdhcheckupweb/pull/9/checks) and the PR description carry the exact final-HEAD CI result; no stale historical run is presented as final-HEAD verification.
+- Disposable local MySQL was shut down after tests. Its task-created .env was backed up in ignored QA storage and removed. No existing service or main-checkout configuration was modified.
