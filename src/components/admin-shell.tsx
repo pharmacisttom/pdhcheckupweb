@@ -15,36 +15,45 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  MessageSquare,
   Package,
   ShieldCheck,
+  Users,
   X,
 } from "lucide-react";
 import { Brand } from "./ui";
 import { request } from "@/lib/client";
-const menuLinks = [
-  { path: "chat", label: "Health Chat", icon: ClipboardList },
-  { path: "chat/settings", label: "ตั้งค่าและประกาศ Chat", icon: ShieldCheck },
-  { path: "chat/reports", label: "รายงาน Chat", icon: BarChart3 },
-  { path: "dashboard", label: "ภาพรวมระบบ", icon: LayoutDashboard },
-  { path: "appointments", label: "จัดการนัดหมาย", icon: CalendarDays },
-  {
-    path: "booking-control",
-    label: "เปิด–ปิดรับนัดออนไลน์",
-    icon: CalendarDays,
-  },
-  { path: "contact-requests", label: "คำขอให้ติดต่อนัด", icon: ClipboardList },
-  { path: "packages", label: "แพ็กเกจตรวจสุขภาพ", icon: Package },
-  { path: "questionnaires", label: "แบบประเมินและกฎ", icon: ClipboardList },
-  { path: "calendar", label: "ปฏิทินให้บริการ", icon: CalendarDays },
-  { path: "waitlist", label: "รายชื่อรอคิว", icon: ClipboardList },
-  { path: "lab-pricing", label: "ห้องปฏิบัติการและราคา", icon: FlaskConical },
-  { path: "organizations", label: "หน่วยงาน / องค์กร", icon: Building2 },
-  { path: "quotations", label: "ใบเสนอราคา", icon: FileText },
-  { path: "billing", label: "การเงินและค่าบริการ", icon: ClipboardList },
-  { path: "reports", label: "รายงานและสถิติ", icon: BarChart3 },
-  { path: "privacy", label: "คุ้มครองข้อมูลส่วนบุคคล", icon: ShieldCheck },
-  { path: "audit", label: "บันทึกการใช้งาน", icon: Activity },
-  { path: "change-password", label: "เปลี่ยนรหัสผ่าน", icon: ShieldCheck },
+
+export type AdminMenuItem = {
+  path: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  category: "overview" | "clinical" | "finance" | "system";
+};
+
+const menuLinks: AdminMenuItem[] = [
+  { path: "dashboard", label: "ภาพรวมระบบ", icon: LayoutDashboard, category: "overview" },
+  { path: "chat", label: "Health Chat", icon: MessageSquare, category: "overview" },
+  { path: "chat/reports", label: "รายงาน Chat", icon: BarChart3, category: "overview" },
+
+  { path: "appointments", label: "จัดการนัดหมาย", icon: CalendarDays, category: "clinical" },
+  { path: "booking-control", label: "เปิด–ปิดรับนัดออนไลน์", icon: CalendarDays, category: "clinical" },
+  { path: "contact-requests", label: "คำขอให้ติดต่อนัด", icon: ClipboardList, category: "clinical" },
+  { path: "packages", label: "แพ็กเกจตรวจสุขภาพ", icon: Package, category: "clinical" },
+  { path: "questionnaires", label: "แบบประเมินและกฎ", icon: ClipboardList, category: "clinical" },
+  { path: "calendar", label: "ปฏิทินให้บริการ", icon: CalendarDays, category: "clinical" },
+  { path: "waitlist", label: "รายชื่อรอคิว", icon: ClipboardList, category: "clinical" },
+  { path: "lab-pricing", label: "ห้องปฏิบัติการและราคา", icon: FlaskConical, category: "clinical" },
+
+  { path: "organizations", label: "หน่วยงาน / องค์กร", icon: Building2, category: "finance" },
+  { path: "quotations", label: "ใบเสนอราคา", icon: FileText, category: "finance" },
+  { path: "billing", label: "การเงินและค่าบริการ", icon: ClipboardList, category: "finance" },
+  { path: "reports", label: "รายงานและสถิติ", icon: BarChart3, category: "finance" },
+
+  { path: "chat/settings", label: "ตั้งค่าและประกาศ Chat", icon: ShieldCheck, category: "system" },
+  { path: "privacy", label: "คุ้มครองข้อมูลส่วนบุคคล", icon: ShieldCheck, category: "system" },
+  { path: "audit", label: "บันทึกการใช้งาน", icon: Activity, category: "system" },
+  { path: "change-password", label: "เปลี่ยนรหัสผ่าน", icon: ShieldCheck, category: "system" },
 ];
 export function AdminShell({
   children,
@@ -121,27 +130,77 @@ export function AdminShell({
           >
             <X />
           </button>
-          <div className="nav-label">WORKSPACE</div>
-          <nav aria-label="เมนูเจ้าหน้าที่">
+          <div className="nav-label">ภาพรวมและสื่อสาร</div>
+          <nav aria-label="ภาพรวมและสื่อสาร">
+            {links
+              .filter((l) => l.category === "overview")
+              .map((link) => (
+                <a
+                  key={link.path}
+                  href={"/admin/" + link.path}
+                  className={path === "/admin/" + link.path ? "active" : ""}
+                >
+                  <link.icon size={17} aria-hidden="true" />
+                  {link.label}
+                </a>
+              ))}
+          </nav>
+
+          <div className="nav-label" style={{ marginTop: 12 }}>บริการและคลินิก</div>
+          <nav aria-label="บริการและคลินิก">
+            {links
+              .filter((l) => l.category === "clinical")
+              .map((link) => (
+                <a
+                  key={link.path}
+                  href={"/admin/" + link.path}
+                  className={path === "/admin/" + link.path ? "active" : ""}
+                >
+                  <link.icon size={17} aria-hidden="true" />
+                  {link.label}
+                </a>
+              ))}
+          </nav>
+
+          <div className="nav-label" style={{ marginTop: 12 }}>การเงินและองค์กร</div>
+          <nav aria-label="การเงินและองค์กร">
+            {links
+              .filter((l) => l.category === "finance")
+              .map((link) => (
+                <a
+                  key={link.path}
+                  href={"/admin/" + link.path}
+                  className={path === "/admin/" + link.path ? "active" : ""}
+                >
+                  <link.icon size={17} aria-hidden="true" />
+                  {link.label}
+                </a>
+              ))}
+          </nav>
+
+          <div className="nav-label" style={{ marginTop: 12 }}>ความปลอดภัยและระบบ</div>
+          <nav aria-label="ความปลอดภัยและระบบ">
             {["manager", "superadmin"].includes(role) && (
               <a
                 href="/admin/users"
                 className={path === "/admin/users" ? "active" : ""}
               >
-                <ShieldCheck size={17} />
+                <Users size={17} aria-hidden="true" />
                 จัดการผู้ใช้งาน
               </a>
             )}
-            {links.map((link) => (
-              <a
-                key={link.path}
-                href={"/admin/" + link.path}
-                className={path === "/admin/" + link.path ? "active" : ""}
-              >
-                <link.icon size={17} />
-                {link.label}
-              </a>
-            ))}
+            {links
+              .filter((l) => l.category === "system")
+              .map((link) => (
+                <a
+                  key={link.path}
+                  href={"/admin/" + link.path}
+                  className={path === "/admin/" + link.path ? "active" : ""}
+                >
+                  <link.icon size={17} aria-hidden="true" />
+                  {link.label}
+                </a>
+              ))}
           </nav>
           <div className="sidebar-bottom">
             <b>PDH Smart Health Check</b>
