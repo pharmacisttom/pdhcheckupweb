@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# shellcheck source=./common.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 require_env
 # Provision a dedicated local MySQL backup account in a mode-600 client option file.
@@ -17,4 +18,6 @@ gzip -t "$FILE.partial"
 [[ -s $FILE.partial ]] || die 'Empty backup'
 mv -- "$FILE.partial" "$FILE"
 sha256sum "$FILE" > "$FILE.sha256"
+printf 'BACKUP_FILE=%s\n' "$FILE"
+printf 'BACKUP_SHA256_FILE=%s.sha256\n' "$FILE"
 echo 'Database backup and checksum created in protected environment backup directory.'

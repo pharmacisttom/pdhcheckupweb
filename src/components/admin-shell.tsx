@@ -2,7 +2,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { permitted } from "@/lib/permissions";
 import { staffLanding } from "@/lib/staff-roles";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
@@ -15,36 +15,45 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  MessageSquare,
   Package,
   ShieldCheck,
+  Users,
   X,
 } from "lucide-react";
 import { Brand } from "./ui";
 import { request } from "@/lib/client";
-const menuLinks = [
-  { path: "chat", label: "Health Chat", icon: ClipboardList },
-  { path: "chat/settings", label: "ตั้งค่าและประกาศ Chat", icon: ShieldCheck },
-  { path: "chat/reports", label: "รายงาน Chat", icon: BarChart3 },
-  { path: "dashboard", label: "ภาพรวมระบบ", icon: LayoutDashboard },
-  { path: "appointments", label: "จัดการนัดหมาย", icon: CalendarDays },
-  {
-    path: "booking-control",
-    label: "เปิด–ปิดรับนัดออนไลน์",
-    icon: CalendarDays,
-  },
-  { path: "contact-requests", label: "คำขอให้ติดต่อนัด", icon: ClipboardList },
-  { path: "packages", label: "แพ็กเกจตรวจสุขภาพ", icon: Package },
-  { path: "questionnaires", label: "แบบประเมินและกฎ", icon: ClipboardList },
-  { path: "calendar", label: "ปฏิทินให้บริการ", icon: CalendarDays },
-  { path: "waitlist", label: "รายชื่อรอคิว", icon: ClipboardList },
-  { path: "lab-pricing", label: "ห้องปฏิบัติการและราคา", icon: FlaskConical },
-  { path: "organizations", label: "หน่วยงาน / องค์กร", icon: Building2 },
-  { path: "quotations", label: "ใบเสนอราคา", icon: FileText },
-  { path: "billing", label: "การเงินและค่าบริการ", icon: ClipboardList },
-  { path: "reports", label: "รายงานและสถิติ", icon: BarChart3 },
-  { path: "privacy", label: "คุ้มครองข้อมูลส่วนบุคคล", icon: ShieldCheck },
-  { path: "audit", label: "บันทึกการใช้งาน", icon: Activity },
-  { path: "change-password", label: "เปลี่ยนรหัสผ่าน", icon: ShieldCheck },
+
+export type AdminMenuItem = {
+  path: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  category: "overview" | "clinical" | "finance" | "system";
+};
+
+const menuLinks: AdminMenuItem[] = [
+  { path: "dashboard", label: "ภาพรวมระบบ", icon: LayoutDashboard, category: "overview" },
+  { path: "chat", label: "Health Chat", icon: MessageSquare, category: "overview" },
+  { path: "chat/reports", label: "รายงาน Chat", icon: BarChart3, category: "overview" },
+
+  { path: "appointments", label: "จัดการนัดหมาย", icon: CalendarDays, category: "clinical" },
+  { path: "booking-control", label: "เปิด–ปิดรับนัดออนไลน์", icon: CalendarDays, category: "clinical" },
+  { path: "contact-requests", label: "คำขอให้ติดต่อนัด", icon: ClipboardList, category: "clinical" },
+  { path: "packages", label: "แพ็กเกจตรวจสุขภาพ", icon: Package, category: "clinical" },
+  { path: "questionnaires", label: "แบบประเมินและกฎ", icon: ClipboardList, category: "clinical" },
+  { path: "calendar", label: "ปฏิทินให้บริการ", icon: CalendarDays, category: "clinical" },
+  { path: "waitlist", label: "รายชื่อรอคิว", icon: ClipboardList, category: "clinical" },
+  { path: "lab-pricing", label: "ห้องปฏิบัติการและราคา", icon: FlaskConical, category: "clinical" },
+
+  { path: "organizations", label: "หน่วยงาน / องค์กร", icon: Building2, category: "finance" },
+  { path: "quotations", label: "ใบเสนอราคา", icon: FileText, category: "finance" },
+  { path: "billing", label: "การเงินและค่าบริการ", icon: ClipboardList, category: "finance" },
+  { path: "reports", label: "รายงานและสถิติ", icon: BarChart3, category: "finance" },
+
+  { path: "chat/settings", label: "ตั้งค่าและประกาศ Chat", icon: ShieldCheck, category: "system" },
+  { path: "privacy", label: "คุ้มครองข้อมูลส่วนบุคคล", icon: ShieldCheck, category: "system" },
+  { path: "audit", label: "บันทึกการใช้งาน", icon: Activity, category: "system" },
+  { path: "change-password", label: "เปลี่ยนรหัสผ่าน", icon: ShieldCheck, category: "system" },
 ];
 export function AdminShell({
   children,
@@ -85,6 +94,7 @@ export function AdminShell({
   const path = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const drawerTriggerRef = useRef<HTMLButtonElement | null>(null);
   async function logout() {
     await request("auth/logout", {});
     router.replace("/login");
@@ -119,29 +129,84 @@ export function AdminShell({
             style={{ color: "white" }}
             onClick={() => setOpen(false)}
           >
-            <X />
+            <X aria-hidden="true" />
           </button>
-          <div className="nav-label">WORKSPACE</div>
-          <nav aria-label="เมนูเจ้าหน้าที่">
+          <div className="nav-label">ภาพรวมและสื่อสาร</div>
+          <nav aria-label="ภาพรวมและสื่อสาร">
+            {links
+              .filter((l) => l.category === "overview")
+              .map((link) => (
+                <a
+                  key={link.path}
+                  href={"/admin/" + link.path}
+                  className={path === "/admin/" + link.path ? "active" : ""}
+                  aria-current={path === "/admin/" + link.path ? "page" : undefined}
+                >
+                  <link.icon size={17} aria-hidden="true" />
+                  {link.label}
+                </a>
+              ))}
+          </nav>
+
+          <div className="nav-label" style={{ marginTop: 12 }}>บริการและคลินิก</div>
+          <nav aria-label="บริการและคลินิก">
+            {links
+              .filter((l) => l.category === "clinical")
+              .map((link) => (
+                <a
+                  key={link.path}
+                  href={"/admin/" + link.path}
+                  className={path === "/admin/" + link.path ? "active" : ""}
+                  aria-current={path === "/admin/" + link.path ? "page" : undefined}
+                >
+                  <link.icon size={17} aria-hidden="true" />
+                  {link.label}
+                </a>
+              ))}
+          </nav>
+
+          <div className="nav-label" style={{ marginTop: 12 }}>การเงินและองค์กร</div>
+          <nav aria-label="การเงินและองค์กร">
+            {links
+              .filter((l) => l.category === "finance")
+              .map((link) => (
+                <a
+                  key={link.path}
+                  href={"/admin/" + link.path}
+                  className={path === "/admin/" + link.path ? "active" : ""}
+                  aria-current={path === "/admin/" + link.path ? "page" : undefined}
+                >
+                  <link.icon size={17} aria-hidden="true" />
+                  {link.label}
+                </a>
+              ))}
+          </nav>
+
+          <div className="nav-label" style={{ marginTop: 12 }}>ความปลอดภัยและระบบ</div>
+          <nav aria-label="ความปลอดภัยและระบบ">
             {["manager", "superadmin"].includes(role) && (
               <a
                 href="/admin/users"
                 className={path === "/admin/users" ? "active" : ""}
+                aria-current={path === "/admin/users" ? "page" : undefined}
               >
-                <ShieldCheck size={17} />
+                <Users size={17} aria-hidden="true" />
                 จัดการผู้ใช้งาน
               </a>
             )}
-            {links.map((link) => (
-              <a
-                key={link.path}
-                href={"/admin/" + link.path}
-                className={path === "/admin/" + link.path ? "active" : ""}
-              >
-                <link.icon size={17} />
-                {link.label}
-              </a>
-            ))}
+            {links
+              .filter((l) => l.category === "system")
+              .map((link) => (
+                <a
+                  key={link.path}
+                  href={"/admin/" + link.path}
+                  className={path === "/admin/" + link.path ? "active" : ""}
+                  aria-current={path === "/admin/" + link.path ? "page" : undefined}
+                >
+                  <link.icon size={17} aria-hidden="true" />
+                  {link.label}
+                </a>
+              ))}
           </nav>
           <div className="sidebar-bottom">
             <b>PDH Smart Health Check</b>
@@ -156,9 +221,12 @@ export function AdminShell({
             <button
               className="menu-button"
               aria-label="เปิดเมนู"
-              onClick={() => setOpen(true)}
+              onClick={(e) => {
+                drawerTriggerRef.current = e.currentTarget;
+                setOpen(true);
+              }}
             >
-              <Menu />
+              <Menu aria-hidden="true" />
             </button>
           </Dialog.Trigger>
           <div className="mobile-app-title">
@@ -193,7 +261,7 @@ export function AdminShell({
               aria-label="ออกจากระบบ"
               onClick={logout}
             >
-              <LogOut size={17} />
+              <LogOut size={17} aria-hidden="true" />
             </button>
           </div>
         </header>
@@ -219,20 +287,34 @@ export function AdminShell({
               href={item.href}
               aria-current={path === item.href ? "page" : undefined}
             >
-              <item.icon size={21} />
+              <item.icon size={21} aria-hidden="true" />
               <span>{item.label}</span>
             </a>
           ))}
           <Dialog.Trigger asChild>
-            <button type="button" aria-label="เมนูทั้งหมด">
-              <Menu size={21} />
+            <button
+              type="button"
+              aria-label="เมนูทั้งหมด"
+              onClick={(e) => {
+                drawerTriggerRef.current = e.currentTarget;
+              }}
+            >
+              <Menu size={21} aria-hidden="true" />
               <span>เมนู</span>
             </button>
           </Dialog.Trigger>
         </nav>
         <Dialog.Portal>
           <Dialog.Overlay className="mobile-menu-overlay" />
-          <Dialog.Content className="mobile-menu-panel">
+          <Dialog.Content
+            className="mobile-menu-panel"
+            onCloseAutoFocus={(e) => {
+              if (drawerTriggerRef.current) {
+                e.preventDefault();
+                drawerTriggerRef.current.focus();
+              }
+            }}
+          >
             <div className="mobile-menu-heading">
               <div>
                 <Dialog.Title>เมนูเจ้าหน้าที่</Dialog.Title>
@@ -241,7 +323,7 @@ export function AdminShell({
                 </Dialog.Description>
               </div>
               <Dialog.Close className="button ghost" aria-label="ปิดเมนู">
-                <X size={22} />
+                <X size={22} aria-hidden="true" />
               </Dialog.Close>
             </div>
             <nav aria-label="เมนูเจ้าหน้าที่บนมือถือ">
@@ -251,7 +333,7 @@ export function AdminShell({
                       {
                         path: "users",
                         label: "จัดการผู้ใช้งาน",
-                        icon: ShieldCheck,
+                        icon: Users,
                       },
                     ]
                   : []),
@@ -265,7 +347,7 @@ export function AdminShell({
                   }
                   onClick={() => setOpen(false)}
                 >
-                  <link.icon size={20} />
+                  <link.icon size={20} aria-hidden="true" />
                   {link.label}
                 </a>
               ))}
@@ -274,7 +356,7 @@ export function AdminShell({
               กลับหน้าเว็บไซต์
             </a>
             <button className="button secondary" onClick={logout}>
-              <LogOut size={18} />
+              <LogOut size={18} aria-hidden="true" />
               ออกจากระบบ
             </button>
           </Dialog.Content>

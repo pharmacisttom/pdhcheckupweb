@@ -556,7 +556,26 @@ export function ManagedRecords({ kind }: { kind: Kind }) {
       >
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay" />
-          <Dialog.Content className="modal">
+          <Dialog.Content
+            className="modal"
+            onInteractOutside={(e) => {
+              const target = e.target as Element | null;
+              if (document.querySelector(".swal2-container") || target?.closest(".swal2-container")) {
+                e.preventDefault();
+              }
+            }}
+            onPointerDownOutside={(e) => {
+              const target = e.target as Element | null;
+              if (document.querySelector(".swal2-container") || target?.closest(".swal2-container")) {
+                e.preventDefault();
+              }
+            }}
+            onEscapeKeyDown={(e) => {
+              if (busy || document.querySelector(".swal2-container")) {
+                e.preventDefault();
+              }
+            }}
+          >
             <Dialog.Title>
               {creating ? "เพิ่มข้อมูล" : names[kind]}
             </Dialog.Title>

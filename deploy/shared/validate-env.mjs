@@ -40,7 +40,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const target = process.argv[2];
     if (!['production', 'staging'].includes(target)) throw new Error('Invalid environment');
     const { parseEnv } = await import('node:util');
-    const peer = parseEnv(fs.readFileSync('/var/www/pdhcheckup/shared/' + (target === 'production' ? 'staging' : 'production') + '/.env', 'utf8'));
+    const deployRoot = process.env.PDH_DEPLOY_ROOT || '/var/www/pdhcheckup';
+    const peer = parseEnv(fs.readFileSync(deployRoot + '/shared/' + (target === 'production' ? 'staging' : 'production') + '/.env', 'utf8'));
     validateSettings(process.env, peer, target);
     console.log('Validated ' + target + ' settings (values withheld).');
   } catch { console.error('Environment validation failed. Review both protected environment files, independent secrets, database accounts, origins and loopback ports.'); process.exitCode = 1; }

@@ -12,7 +12,11 @@ process.env.OTP_PROVIDER = "disabled";
 process.env.EMAIL_PROVIDER = "disabled";
 export default defineConfig({
   testDir: "./tests/e2e",
-  testMatch: ["rc03-ui.spec.ts", "registration-mobile.spec.ts"],
+  testMatch: [
+    "rc03-ui.spec.ts",
+    "registration-mobile.spec.ts",
+    "rc04-impeccable-visual.spec.ts",
+  ],
   workers: 1,
   timeout: 90000,
   expect: { timeout: 20000 },

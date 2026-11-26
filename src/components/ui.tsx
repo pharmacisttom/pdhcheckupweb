@@ -160,9 +160,9 @@ export function PackageCard({
   const { t } = useLanguage();
 
   return (
-    <article className={"package-card " + (selected ? "selected" : "")}>
-      <div className="package-symbol">
-        <HeartPulse />
+    <article className={"package-card " + (selected ? "selected" : "")} aria-label={item.name}>
+      <div className="package-symbol" aria-hidden="true">
+        <HeartPulse size={24} />
       </div>
       <div className="eyebrow">HEALTH CHECK • V{item.version}</div>
       <h3>{item.name}</h3>
@@ -174,15 +174,15 @@ export function PackageCard({
       <div className="divider" />
       <p className="muted">
         {item.audience}
-        {t("· อายุ")}
+        {t("· อายุ ")}
         {item.minAge}–{item.maxAge}
-        {t("ปี")}
+        {t(" ปี")}
       </p>
       <ul className="check-list">
         {item.items.slice(0, 4).map((i) => (
           <li key={i.id}>
-            <Check size={16} />
-            {i.nameTh}
+            <Check size={16} aria-hidden="true" />
+            <span>{i.nameTh}</span>
           </li>
         ))}
       </ul>
@@ -202,23 +202,24 @@ export function PackageCard({
           type="button"
           className={"button " + (selected ? "" : "secondary")}
           onClick={onSelect}
+          aria-pressed={selected}
         >
           {selected ? (
             <>
-              <Check size={16} />
+              <Check size={16} aria-hidden="true" />
               {t("เลือกแล้ว")}
             </>
           ) : (
             <>
               {t("เลือกแพ็กเกจ")}
-              <ArrowRight size={16} />
+              <ArrowRight size={16} aria-hidden="true" />
             </>
           )}
         </button>
       ) : (
         <a className="button secondary" href={"/register?package=" + item.id}>
           {t("เลือกแพ็กเกจนี้")}
-          <ArrowRight size={16} />
+          <ArrowRight size={16} aria-hidden="true" />
         </a>
       )}
     </article>
