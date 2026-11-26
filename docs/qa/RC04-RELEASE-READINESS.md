@@ -3,7 +3,7 @@
 **Target Branch:** `feature/rc04-ui-impeccable-playwright`  
 **Base Branch:** `feature/rc03-clinician-feedback-7`  
 **Assessment Date:** 2026-11-26  
-**Recommendation:** **READY FOR STAGING VISUAL UAT (PRODUCTION REMAINS STRICT NO-GO)**
+**Recommendation:** **READY FOR STAGING DEPLOY (LIVE STAGING DEPLOY & VISUAL UAT CURRENTLY BLOCKED ON WORKSTATION — NO VPS SSH; PRODUCTION REMAINS STRICT NO-GO)**
 
 ---
 
@@ -12,9 +12,11 @@
 | Quality Gate | Requirement | Status | Evidence |
 | :--- | :--- | :---: | :--- |
 | **Production Safety** | ห้ามแตะต้องฐานข้อมูลจริง `pdh_healthcheck` | **PASS** | `test-db-guard` ผ่าน 5/5 และทดสอบบน `pdh_healthcheck_rc01_test` (MySQL 8.4 port 3308, 14 migrations) เท่านั้น |
+| **Staging Pinned-SHA Script** | Deploy แบบไม่ใช้ `git reset --hard`, ไม่ auto-seed, ตรวจ Production baseline | **PASS (UNIT)** | [`deploy/staging/deploy-pinned-sha.sh`](../../deploy/staging/deploy-pinned-sha.sh) + [`tests/unit/staging-pinned-deploy.test.ts`](../../tests/unit/staging-pinned-deploy.test.ts) |
+| **Live Staging VPS Deploy & UAT** | Deploy และรัน UAT บน `https://staging-pdhcheckup.pluakdaenghospital.cloud` | **BLOCKED** | เครื่อง workstation ปัจจุบันไม่มี SSH key/access ไปยัง VPS `187.52.117.39` — ดูรายละเอียดใน [`RC04-STAGING-UAT-SIGNOFF.md`](RC04-STAGING-UAT-SIGNOFF.md) |
 | **Type Safety** | `npm run typecheck` (`tsc --noEmit`) | **PASS** | Exit code 0 (ไม่มี Type Error) |
 | **Lint & Code Style** | `npm run lint` (`eslint .`) | **PASS** | 0 errors (1 pre-existing warning in `src/components/data-table.tsx`) |
-| **Unit Test Coverage** | `npm run test:unit` (`vitest`) | **PASS** | 24 files / 199 tests passed (100%) |
+| **Unit Test Coverage** | `npm run test:unit` (`vitest`) | **PASS** | 25 files / 202 tests passed (100%, including `staging-pinned-deploy.test.ts`) |
 | **DB Persistence Integration** | `node scripts/test-rc03-integration.mjs --all` | **PASS** | 16 files / 108 tests passed (100%) |
 | **Playwright UI & Multilingual** | `npm run test:rc03:ui` | **PASS** | 17/17 tests passed (35.2s) |
 | **Playwright Full Admin & Mobile E2E** | `npm run test:admin-crud:e2e` | **PASS** | 30/30 tests passed including 9 new RC04 Admin E2E tests (1.1m) |
