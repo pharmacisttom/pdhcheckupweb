@@ -12,6 +12,7 @@ export DEPLOY_ENV=staging
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SHARED_TOOLS="$(cd -- "$SCRIPT_DIR/../shared" && pwd)"
+# shellcheck source=../shared/common.sh
 source "$SHARED_TOOLS/common.sh"
 
 [[ ${DEPLOY_ENV:-} == staging ]] || die "Refusing to run: DEPLOY_ENV must be staging"
@@ -93,7 +94,8 @@ rm -rf -- "$MIG_TMP"
 STAGING_ACTIVE_BEFORE=$(systemctl is-active "$SERVICE" 2>/dev/null || echo "unknown")
 STAGING_CURRENT_BEFORE=$(readlink -f "$RELEASES/current" 2>/dev/null || echo "none")
 STAGING_PREV_BEFORE=$(readlink -f "$RELEASES/previous" 2>/dev/null || echo "none")
-LATEST_BACKUP=$(ls -1t "$BASE/shared/staging/backups"/*.sql.gz 2>/dev/null | head -n1 || echo "none")
+LATEST_BACKUP=$(find "$BASE/shared/staging/backups" -maxdepth 1 -type f -name '*.sql.gz' 2>/dev/null | sort -r | head -n1 || true)
+[[ -n $LATEST_BACKUP ]] || LATEST_BACKUP="none"
 NGINX_CHECK="skipped"
 if command -v nginx >/dev/null 2>&1; then
   if nginx -t >/dev/null 2>&1; then

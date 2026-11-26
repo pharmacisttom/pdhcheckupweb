@@ -15,24 +15,22 @@ describe("production legacy-compatible cutover and rollback scripts", () => {
     "production",
     "rollback-legacy-cutover.sh",
   );
-  const serviceExamplePath = join(
-    process.cwd(),
-    "deploy",
-    "production",
-    "pdhcheckup-production.service.example",
-  );
+  const backupPath = join(process.cwd(), "deploy", "shared", "backup.sh");
 
   const cutover = readFileSync(cutoverPath, "utf8");
   const rollback = readFileSync(rollbackPath, "utf8");
-  const serviceExample = readFileSync(serviceExamplePath, "utf8");
+  const backup = readFileSync(backupPath, "utf8");
 
-  it("enforces production-only isolation, confirmation gates, and preflight-only support", () => {
+  it("enforces production-only isolation, confirmation gates, and exact remote branch tip", () => {
     expect(cutover).toContain("export DEPLOY_ENV=production");
     expect(cutover).toContain("127.0.0.1:pdh_healthcheck:pdhcheckup_prod");
     expect(cutover).toContain("https://pdhcheckup.pluakdaenghospital.cloud");
     expect(cutover).toContain("CONFIRM_PRODUCTION_CUTOVER");
     expect(cutover).toContain("--preflight-only");
     expect(cutover).toContain("APPROVED_MIGRATIONS_SHA256");
+    expect(cutover).toContain('BRANCH_TIP=$(git -C "$GIT_CACHE" rev-parse "refs/remotes/origin/$BRANCH")');
+    expect(cutover).toContain('[[ $BRANCH_TIP == "$SHA" ]]');
+    expect(cutover).not.toContain("merge-base --is-ancestor");
   });
 
   it("never resets source, seeds data, runs destructive SQL, or auto-restores DB", () => {
@@ -45,35 +43,40 @@ describe("production legacy-compatible cutover and rollback scripts", () => {
       expect(content).not.toContain("DROP DATABASE");
       expect(content).not.toContain("TRUNCATE");
       expect(content).not.toMatch(/mysql[^|\n]*</);
+      expect(content).not.toContain("rollback-state.env");
+      expect(content).not.toMatch(/source\s+.*rollback-state/);
+      expect(content).not.toMatch(/sha256sum[^|\n]*\|\|\s*true/);
     }
   });
 
-  it("builds immutable release, fixes pdhcheckup ownership, removes runtime .env, backs up DB and systemd unit", () => {
-    expect(cutover).toContain('git -C "$GIT_CACHE" archive "$SHA"');
-    expect(cutover).toContain("chown -R pdhcheckup:pdhcheckup");
-    expect(cutover).toContain("rm -f -- runtime/.env runtime/.env.production runtime/.env.local runtime/.env.staging");
-    expect(cutover).toContain('bash "$TOOLS/backup.sh"');
-    expect(cutover).toContain("sha256sum -c");
-    expect(cutover).toContain("verify_production_db_state");
-    expect(cutover).toContain("pdhcheckup-production.service.orig");
-    expect(cutover).toContain("sudo systemctl daemon-reload");
-    expect(cutover).toContain("rollback_application_only");
-    expect(cutover).toContain("/api/v1/health");
-    expect(cutover).toContain("/api/v1/admin/audit");
-    expect(cutover).toContain("STAGING_PID_BEFORE");
-    expect(cutover).toContain("STAGING_PID_AFTER");
+  it("uses validated JSON rollback state, deterministic backup provenance, drop-ins, and signal traps", () => {
+    expect(backup).toContain("BACKUP_FILE=");
+    expect(backup).toContain("BACKUP_SHA256_FILE=");
+    expect(cutover).not.toContain("ls -1t");
+    expect(cutover).toContain("BACKUP_START_EPOCH");
+    expect(cutover).toContain("rollback-state.json");
+    expect(cutover).toContain("rollback-state.json.sha256");
+    expect(cutover).toContain("dropins.orig");
+    expect(cutover).toContain("dropins.sha256");
+    expect(cutover).toContain("ACTIVATION_STARTED=true");
+    expect(cutover).toContain("ACTIVATION_COMMITTED=true");
+    expect(cutover).toContain("ROLLBACK_DONE=true");
+    expect(cutover).toContain("trap 'on_signal INT' INT");
+    expect(cutover).toContain("trap 'on_signal TERM' TERM");
+    expect(cutover).toContain("trap 'on_exit' EXIT");
+    expect(cutover).toContain("verify_restored_legacy_runtime");
   });
 
-  it("provides preflight and checksum-verified application-only rollback aligned with systemd service example", () => {
+  it("verifies checksums fail-closed and restored legacy runtime in manual rollback", () => {
     expect(rollback).toContain("export DEPLOY_ENV=production");
     expect(rollback).toContain("--preflight");
     expect(rollback).toContain("--restore-legacy");
     expect(rollback).toContain("SCHEMA_COMPATIBILITY_REVIEWED");
     expect(rollback).toContain("CONFIRM_PRODUCTION_ROLLBACK");
+    expect(rollback).toContain("sha256sum -c rollback-state.json.sha256");
     expect(rollback).toContain("sha256sum -c pdhcheckup-production.service.orig.sha256");
+    expect(rollback).toContain("sha256sum -c ../dropins.sha256");
+    expect(rollback).toContain("RESTORED_WORKDIR");
     expect(rollback).toContain("sudo systemctl daemon-reload");
-    expect(serviceExample).toContain("WorkingDirectory=/var/www/pdhcheckup/releases/production/current/runtime");
-    expect(serviceExample).toContain("Environment=PORT=3036");
-    expect(serviceExample).toContain("ExecStart=/usr/bin/node server.js");
   });
 });

@@ -91,6 +91,21 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npm run lint
+      - name: Shell syntax and ShellCheck on deployment scripts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          SCRIPTS=(
+            deploy/shared/common.sh
+            deploy/shared/backup.sh
+            deploy/staging/deploy-pinned-sha.sh
+            deploy/production/cutover-legacy-pinned-sha.sh
+            deploy/production/rollback-legacy-cutover.sh
+          )
+          for s in "${SCRIPTS[@]}"; do
+            bash -n "$s"
+          done
+          shellcheck -x -P SCRIPTDIR -S warning "${SCRIPTS[@]}"
       - name: Unit tests
         run: npm run test:unit
       - name: DB-free guard harness

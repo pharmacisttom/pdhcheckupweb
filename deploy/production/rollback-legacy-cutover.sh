@@ -4,13 +4,16 @@ set -Eeuo pipefail
 # PDH Smart Health Check — Production Legacy Cutover Preflight & Application Rollback
 # Safety Guarantees:
 # - Operates exclusively on DEPLOY_ENV=production
+# - Validates non-executable JSON rollback state + SHA-256 checksums fail-closed
+# - Restores exact original systemd unit AND drop-ins
+# - Verifies health specifically against the restored legacy runtime (WorkingDirectory + symlink + loopback + HTTPS)
 # - Never restores, truncates, drops, or modifies Production database pdh_healthcheck
-# - Restores only the backed-up systemd unit and previous release / legacy runtime symlink
 
 export DEPLOY_ENV=production
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SHARED_TOOLS="$(cd -- "$SCRIPT_DIR/../shared" && pwd)"
+# shellcheck source=../shared/common.sh
 source "$SHARED_TOOLS/common.sh"
 TOOLS="$SHARED_TOOLS"
 
@@ -31,6 +34,11 @@ UNIT_PATH=$(systemctl show "$SERVICE" -p FragmentPath --value 2>/dev/null || tru
 [[ -n $UNIT_PATH && -f $UNIT_PATH ]] || UNIT_PATH="/etc/systemd/system/$SERVICE"
 
 if [[ $MODE == "--preflight" ]]; then
+  LATEST_DB_BACKUP=$(find "$BASE/shared/production/backups" -maxdepth 1 -type f -name '*.sql.gz' 2>/dev/null | sort -r | head -n1 || true)
+  [[ -n $LATEST_DB_BACKUP ]] || LATEST_DB_BACKUP="none"
+  SYS_BACKUPS=$(find "$BASE/shared/production/systemd-backups" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -r | head -n3 | tr '\n' ' ' || true)
+  [[ -n $SYS_BACKUPS ]] || SYS_BACKUPS="none"
+  LEGACY_DEFAULT="${LEGACY_RUNTIME_DIR:-$BASE/releases/rc01-e75f4d9}"
   echo "=== PRODUCTION ROLLBACK & LEGACY PREFLIGHT ==="
   echo "Service:           $SERVICE ($(systemctl is-active "$SERVICE" 2>/dev/null || echo "unknown"), PID=$(systemctl show "$SERVICE" -p MainPID --value 2>/dev/null || echo "0"))"
   echo "Unit Path:         $UNIT_PATH"
@@ -38,9 +46,9 @@ if [[ $MODE == "--preflight" ]]; then
   echo "ExecStart:         $(systemctl show "$SERVICE" -p ExecStart --value 2>/dev/null || echo "unknown")"
   echo "Current Symlink:   $(readlink -f "$RELEASES/current" 2>/dev/null || echo "none")"
   echo "Previous Symlink:  $(readlink -f "$RELEASES/previous" 2>/dev/null || echo "none")"
-  echo "Legacy Runtime:    ${LEGACY_RUNTIME_DIR:-$BASE/releases/rc01-e75f4d9} (exists=$([[ -d ${LEGACY_RUNTIME_DIR:-$BASE/releases/rc01-e75f4d9} ]] && echo yes || echo no))"
-  echo "Latest DB Backup:  $(ls -1t "$BASE/shared/production/backups"/*.sql.gz 2>/dev/null | head -n1 || echo "none")"
-  echo "Systemd Backups:   $(ls -1dt "$BASE/shared/production/systemd-backups"/* 2>/dev/null | head -n3 | tr '\n' ' ' || echo "none")"
+  echo "Legacy Runtime:    $LEGACY_DEFAULT (exists=$([[ -d $LEGACY_DEFAULT ]] && echo yes || echo no))"
+  echo "Latest DB Backup:  $LATEST_DB_BACKUP"
+  echo "Systemd Backups:   $SYS_BACKUPS"
   echo "APP_URL:           $PROD_APP_URL"
   exit 0
 fi
@@ -50,26 +58,54 @@ fi
 [[ ${CONFIRM_PRODUCTION_ROLLBACK:-} == "pdh_healthcheck" ]] || die "Set CONFIRM_PRODUCTION_ROLLBACK=pdh_healthcheck to execute application rollback"
 
 SYS_BACKUP_DIR=$(realpath -e "$BACKUP_ARG")
-[[ $SYS_BACKUP_DIR == "$BASE/shared/production/systemd-backups/"* ]] || die "Systemd backup directory must reside under $BASE/shared/production/systemd-backups"
+EXPECTED_BACKUP_PARENT=$(realpath -e "$BASE/shared/production/systemd-backups")
+[[ $SYS_BACKUP_DIR == "$EXPECTED_BACKUP_PARENT/"* ]] || die "Systemd backup directory must reside under $BASE/shared/production/systemd-backups"
+[[ -f "$SYS_BACKUP_DIR/rollback-state.json" ]] || die "Missing rollback-state.json"
+[[ -f "$SYS_BACKUP_DIR/rollback-state.json.sha256" ]] || die "Missing rollback-state.json.sha256"
 [[ -f "$SYS_BACKUP_DIR/pdhcheckup-production.service.orig" ]] || die "Missing backed up unit file"
 [[ -f "$SYS_BACKUP_DIR/pdhcheckup-production.service.orig.sha256" ]] || die "Missing backed up unit checksum"
-[[ -f "$SYS_BACKUP_DIR/rollback-state.env" ]] || die "Missing rollback-state.env"
 
+(cd "$SYS_BACKUP_DIR" && sha256sum -c rollback-state.json.sha256) || die "rollback-state.json checksum verification failed"
 (cd "$SYS_BACKUP_DIR" && sha256sum -c pdhcheckup-production.service.orig.sha256) || die "Systemd unit backup checksum verification failed"
 
-# shellcheck source=/dev/null
-source "$SYS_BACKUP_DIR/rollback-state.env"
-[[ -n ${UNIT_PATH:-} ]] || die "UNIT_PATH missing in rollback-state.env"
+PARSED=$(node -e '
+  const fs = require("node:fs");
+  const crypto = require("node:crypto");
+  const [statePath, origUnitPath] = process.argv.slice(1);
+  const s = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  const safeAbs = (v) => typeof v === "string" && !v.includes("..") && (/^\/[A-Za-z0-9._\/-]+$/.test(v) || /^[A-Za-z]:[\\\/][A-Za-z0-9._\\\/-]+$/.test(v));
+  if (s.schemaVersion !== 1 || !safeAbs(s.unitPath)) {
+    throw new Error("Invalid rollback-state.json schema");
+  }
+  const actualOrigSha = crypto.createHash("sha256").update(fs.readFileSync(origUnitPath)).digest("hex");
+  if (actualOrigSha !== s.unitOrigSha256) {
+    throw new Error("Backed-up unit SHA-256 does not match rollback-state.json");
+  }
+  console.log([
+    s.unitPath,
+    s.hadDropIns ? "true" : "false",
+    s.originalWorkingDirectory || "",
+    s.previousCurrent || "",
+  ].join("\t"));
+' "$SYS_BACKUP_DIR/rollback-state.json" "$SYS_BACKUP_DIR/pdhcheckup-production.service.orig") || die "rollback-state.json validation failed"
 
-sudo cp -a "$SYS_BACKUP_DIR/pdhcheckup-production.service.orig" "$UNIT_PATH"
-if [[ -d "$SYS_BACKUP_DIR/dropins.orig" ]]; then
-  sudo mkdir -p "${UNIT_PATH}.d"
-  sudo cp -a "$SYS_BACKUP_DIR/dropins.orig/." "${UNIT_PATH}.d/"
+IFS=$'\t' read -r ST_UNIT_PATH ST_HAD_DROPINS ST_ORIG_WORKDIR ST_PREV_CURRENT <<< "$PARSED"
+
+if [[ $ST_HAD_DROPINS == "true" ]]; then
+  [[ -f "$SYS_BACKUP_DIR/dropins.sha256" && -d "$SYS_BACKUP_DIR/dropins.orig" ]] || die "Missing drop-ins backup or checksum"
+  (cd "$SYS_BACKUP_DIR/dropins.orig" && sha256sum -c ../dropins.sha256) || die "Drop-ins backup checksum verification failed"
+  sudo rm -rf -- "${ST_UNIT_PATH}.d"
+  sudo mkdir -p "${ST_UNIT_PATH}.d"
+  sudo cp -a "$SYS_BACKUP_DIR/dropins.orig/." "${ST_UNIT_PATH}.d/"
+elif [[ -d "${ST_UNIT_PATH}.d" ]]; then
+  sudo rm -rf -- "${ST_UNIT_PATH}.d"
 fi
 
-if [[ -n ${PREVIOUS_CURRENT:-} ]]; then
-  [[ -d $PREVIOUS_CURRENT ]] || die "Previous release directory missing: $PREVIOUS_CURRENT"
-  ln -s "$PREVIOUS_CURRENT" "$RELEASES/current.rollback"
+sudo cp -a "$SYS_BACKUP_DIR/pdhcheckup-production.service.orig" "$ST_UNIT_PATH"
+
+if [[ -n $ST_PREV_CURRENT ]]; then
+  [[ -d $ST_PREV_CURRENT ]] || die "Previous release directory missing: $ST_PREV_CURRENT"
+  ln -s "$ST_PREV_CURRENT" "$RELEASES/current.rollback"
   mv -Tf "$RELEASES/current.rollback" "$RELEASES/current"
 else
   rm -f -- "$RELEASES/current"
@@ -77,6 +113,20 @@ fi
 
 sudo systemctl daemon-reload
 sudo systemctl restart "$SERVICE"
+
+systemctl is-active --quiet "$SERVICE" || die "$SERVICE failed to start after rollback"
+RESTORED_PID=$(systemctl show "$SERVICE" -p MainPID --value 2>/dev/null || echo "0")
+[[ $RESTORED_PID =~ ^[0-9]+$ && $RESTORED_PID -gt 0 ]] || die "Invalid PID after rollback: $RESTORED_PID"
+RESTORED_WORKDIR=$(systemctl show "$SERVICE" -p WorkingDirectory --value 2>/dev/null || echo "")
+[[ $RESTORED_WORKDIR == "$ST_ORIG_WORKDIR" ]] || die "Restored WorkingDirectory '$RESTORED_WORKDIR' does not match original '$ST_ORIG_WORKDIR'"
+
+if [[ -n $ST_PREV_CURRENT ]]; then
+  CUR_RESOLVED=$(readlink -e "$RELEASES/current" 2>/dev/null || echo "")
+  [[ $CUR_RESOLVED == "$ST_PREV_CURRENT" ]] || die "Restored current symlink '$CUR_RESOLVED' does not match '$ST_PREV_CURRENT'"
+else
+  [[ ! -e $RELEASES/current && ! -L $RELEASES/current ]] || die "current symlink still exists after rollback to legacy layout"
+fi
+
 bash "$TOOLS/healthcheck.sh"
 
 curl --fail --silent --max-time 10 "$PROD_APP_URL/api/v1/health" | node -e '
@@ -88,4 +138,4 @@ curl --fail --silent --max-time 10 "$PROD_APP_URL/api/v1/health" | node -e '
   });
 ' || die "Production HTTPS health verification failed after rollback"
 
-echo "Production application rollback complete (database pdh_healthcheck unchanged)."
+echo "Production application rollback complete and verified against restored runtime ($ST_ORIG_WORKDIR). Database pdh_healthcheck unchanged."
