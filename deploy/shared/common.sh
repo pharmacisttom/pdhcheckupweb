@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
 set -Eeuo pipefail
 umask 077
-# shellcheck disable=SC2034
 [[ ${DEPLOY_ENV:-} == production || ${DEPLOY_ENV:-} == staging ]] || { echo 'Invalid environment' >&2; exit 1; }
 BASE="${PDH_DEPLOY_ROOT:-/var/www/pdhcheckup}"
 SOURCE="$BASE/source"
