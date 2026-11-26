@@ -2,7 +2,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { permitted } from "@/lib/permissions";
 import { staffLanding } from "@/lib/staff-roles";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
@@ -94,6 +94,7 @@ export function AdminShell({
   const path = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const drawerTriggerRef = useRef<HTMLButtonElement | null>(null);
   async function logout() {
     await request("auth/logout", {});
     router.replace("/login");
@@ -128,7 +129,7 @@ export function AdminShell({
             style={{ color: "white" }}
             onClick={() => setOpen(false)}
           >
-            <X />
+            <X aria-hidden="true" />
           </button>
           <div className="nav-label">ภาพรวมและสื่อสาร</div>
           <nav aria-label="ภาพรวมและสื่อสาร">
@@ -139,6 +140,7 @@ export function AdminShell({
                   key={link.path}
                   href={"/admin/" + link.path}
                   className={path === "/admin/" + link.path ? "active" : ""}
+                  aria-current={path === "/admin/" + link.path ? "page" : undefined}
                 >
                   <link.icon size={17} aria-hidden="true" />
                   {link.label}
@@ -155,6 +157,7 @@ export function AdminShell({
                   key={link.path}
                   href={"/admin/" + link.path}
                   className={path === "/admin/" + link.path ? "active" : ""}
+                  aria-current={path === "/admin/" + link.path ? "page" : undefined}
                 >
                   <link.icon size={17} aria-hidden="true" />
                   {link.label}
@@ -171,6 +174,7 @@ export function AdminShell({
                   key={link.path}
                   href={"/admin/" + link.path}
                   className={path === "/admin/" + link.path ? "active" : ""}
+                  aria-current={path === "/admin/" + link.path ? "page" : undefined}
                 >
                   <link.icon size={17} aria-hidden="true" />
                   {link.label}
@@ -184,6 +188,7 @@ export function AdminShell({
               <a
                 href="/admin/users"
                 className={path === "/admin/users" ? "active" : ""}
+                aria-current={path === "/admin/users" ? "page" : undefined}
               >
                 <Users size={17} aria-hidden="true" />
                 จัดการผู้ใช้งาน
@@ -196,6 +201,7 @@ export function AdminShell({
                   key={link.path}
                   href={"/admin/" + link.path}
                   className={path === "/admin/" + link.path ? "active" : ""}
+                  aria-current={path === "/admin/" + link.path ? "page" : undefined}
                 >
                   <link.icon size={17} aria-hidden="true" />
                   {link.label}
@@ -215,9 +221,12 @@ export function AdminShell({
             <button
               className="menu-button"
               aria-label="เปิดเมนู"
-              onClick={() => setOpen(true)}
+              onClick={(e) => {
+                drawerTriggerRef.current = e.currentTarget;
+                setOpen(true);
+              }}
             >
-              <Menu />
+              <Menu aria-hidden="true" />
             </button>
           </Dialog.Trigger>
           <div className="mobile-app-title">
@@ -252,7 +261,7 @@ export function AdminShell({
               aria-label="ออกจากระบบ"
               onClick={logout}
             >
-              <LogOut size={17} />
+              <LogOut size={17} aria-hidden="true" />
             </button>
           </div>
         </header>
@@ -278,20 +287,34 @@ export function AdminShell({
               href={item.href}
               aria-current={path === item.href ? "page" : undefined}
             >
-              <item.icon size={21} />
+              <item.icon size={21} aria-hidden="true" />
               <span>{item.label}</span>
             </a>
           ))}
           <Dialog.Trigger asChild>
-            <button type="button" aria-label="เมนูทั้งหมด">
-              <Menu size={21} />
+            <button
+              type="button"
+              aria-label="เมนูทั้งหมด"
+              onClick={(e) => {
+                drawerTriggerRef.current = e.currentTarget;
+              }}
+            >
+              <Menu size={21} aria-hidden="true" />
               <span>เมนู</span>
             </button>
           </Dialog.Trigger>
         </nav>
         <Dialog.Portal>
           <Dialog.Overlay className="mobile-menu-overlay" />
-          <Dialog.Content className="mobile-menu-panel">
+          <Dialog.Content
+            className="mobile-menu-panel"
+            onCloseAutoFocus={(e) => {
+              if (drawerTriggerRef.current) {
+                e.preventDefault();
+                drawerTriggerRef.current.focus();
+              }
+            }}
+          >
             <div className="mobile-menu-heading">
               <div>
                 <Dialog.Title>เมนูเจ้าหน้าที่</Dialog.Title>
@@ -300,7 +323,7 @@ export function AdminShell({
                 </Dialog.Description>
               </div>
               <Dialog.Close className="button ghost" aria-label="ปิดเมนู">
-                <X size={22} />
+                <X size={22} aria-hidden="true" />
               </Dialog.Close>
             </div>
             <nav aria-label="เมนูเจ้าหน้าที่บนมือถือ">
@@ -310,7 +333,7 @@ export function AdminShell({
                       {
                         path: "users",
                         label: "จัดการผู้ใช้งาน",
-                        icon: ShieldCheck,
+                        icon: Users,
                       },
                     ]
                   : []),
@@ -324,7 +347,7 @@ export function AdminShell({
                   }
                   onClick={() => setOpen(false)}
                 >
-                  <link.icon size={20} />
+                  <link.icon size={20} aria-hidden="true" />
                   {link.label}
                 </a>
               ))}
@@ -333,7 +356,7 @@ export function AdminShell({
               กลับหน้าเว็บไซต์
             </a>
             <button className="button secondary" onClick={logout}>
-              <LogOut size={18} />
+              <LogOut size={18} aria-hidden="true" />
               ออกจากระบบ
             </button>
           </Dialog.Content>

@@ -5,10 +5,12 @@ on:
     branches:
       - feature/rc02-integrated-registration-recovery
       - feature/rc03-clinician-feedback-7
+      - feature/rc04-ui-impeccable-playwright
   pull_request:
     branches:
       - feature/rc02-mobile-sweetalert
       - feature/rc02-integrated-registration-recovery
+      - feature/rc03-clinician-feedback-7
   workflow_dispatch:
 
 permissions:
@@ -107,6 +109,8 @@ jobs:
         run: node scripts/test-admin-crud-e2e.mjs tests/e2e/registration-mobile.spec.ts --grep "registration keeps fields between steps and reports server success only after confirmation" --repeat-each=5 --trace=on --output=playwright-report/registration-traces
       - name: Admin and mobile browser E2E (clean exit required)
         run: npm run test:admin-crud:e2e
+      - name: RC04 visual, multilingual and UI regression
+        run: npm run test:rc03:ui
       - name: Clean up ephemeral test config
         if: always()
         run: rm -f .env
@@ -120,5 +124,6 @@ jobs:
             playwright-report/
             docs/qa/2026-11-16/rc02-*.png
             docs/qa/2026-11-23/rc03-*.png
+            docs/qa/2026-11-26/rc04-*.png
           if-no-files-found: ignore
           retention-days: 7
