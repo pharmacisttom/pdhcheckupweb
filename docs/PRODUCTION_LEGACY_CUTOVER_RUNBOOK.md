@@ -42,13 +42,14 @@ APPROVED_MIGRATIONS_SHA256="$DIGEST" \
 ## Step 2 — One-Pass Production Cutover
 `cutover-legacy-pinned-sha.sh` executes fail-closed:
 1. Enforces exact `origin/<BRANCH>` tip match with `$PINNED_SHA` and migration digest `$DIGEST`.
-2. Builds an immutable release `/var/www/pdhcheckup/releases/production/<UTC-TS>-<SHA>` via `git archive`, removes `.env*` from `runtime/`, writes `REVISION`, and fixes `pdhcheckup:pdhcheckup` ownership/permissions.
-3. Runs `deploy/shared/backup.sh` and verifies the exact `BACKUP_FILE=` emitted by that invocation (`gzip -t`, `sha256sum -c`, mtime >= start time, SQL `pdh_healthcheck` header & `CREATE TABLE`).
+2. Builds an immutable release `/var/www/pdhcheckup/releases/production/<UTC-TS>-<SHA>` via `git archive`, removes `.env*` from `runtime/`, writes `REVISION`, fixes `pdhcheckup:pdhcheckup` ownership/permissions, and checks runtime permissions (`test -r server.js && test -w .next`).
+3. Runs `deploy/shared/backup.sh` and verifies the exact `BACKUP_FILE=` emitted by that invocation (`gzip -t`, `sha256sum -c`, mtime >= start time) plus an **EOF-consuming `awk` scan** of the decompressed SQL dump (zero SIGPIPE on large dumps under `set -o pipefail`).
 4. Re-verifies `pdh_healthcheck` DB identity and 14/14 migration checksums immediately before cutover (zero seeds/resets/destructive SQL).
-5. Saves verbatim SHA-256-verified backups of the live systemd unit and any `${UNIT_PATH}.d/*.conf` drop-ins plus a validated non-executable `rollback-state.json` + `.sha256` under `/var/www/pdhcheckup/shared/production/systemd-backups/<UTC-TS>/`.
-6. Surgically updates only `WorkingDirectory`, `ExecStart`, and `ReadWritePaths` on the live unit (and runtime paths in drop-ins if present), preserving all existing site-specific directives, runs `systemctl daemon-reload` and `systemctl restart pdhcheckup-production.service`.
+5. Saves verbatim SHA-256-verified backups of the live systemd unit and all `${UNIT_PATH}.d/*.conf` drop-ins plus a validated non-executable `rollback-state.json` + `.sha256` under `/var/www/pdhcheckup/shared/production/systemd-backups/<UTC-TS>/`.
+6. Surgically updates only `WorkingDirectory`, non-empty `ExecStart`, and `ReadWritePaths` on the live unit and drop-ins (preserving `ExecStart=` resets and all site directives), runs `systemctl daemon-reload`, and runs **`systemd-analyze verify` + effective property checks** (`LoadState`, `User`, `WorkingDirectory`, `ExecStart`, `EnvironmentFiles`, `ReadWritePaths`/`ProtectSystem`, service user runtime permissions) **before** restarting `pdhcheckup-production.service`.
 7. Verifies active service, `WorkingDirectory`, `127.0.0.1:3036`, HTTPS `/api/v1/health`, `REVISION`, read-only auth/RBAC probes, unchanged `.env`, unchanged legacy runtime, unchanged Staging service, and unchanged `/var/www/pdhcheckup/source`.
-8. On **any** failure or `INT`/`TERM`/`ERR` after activation starts, executes an idempotent application-only rollback (`rollback-state.json` + unit + drop-ins checksum-verified fail-closed, verifies restored legacy `WorkingDirectory` and loopback health, and **never** auto-restores `pdh_healthcheck`).
+8. **Transactionally commits:** writes sanitized evidence + `.sha256` and atomically writes `rollback-state.json` (`phase: "committed"`, preserving previous verified state on failure) **before** setting `ACTIVATION_COMMITTED=true`.
+9. On **any** failure or `ERR`/`INT`/`TERM`/`EXIT` while un-committed, executes an idempotent state-tracked application-only rollback (`ROLLBACK_IN_PROGRESS` -> `ROLLBACK_SUCCEEDED` or `ROLLBACK_FAILED`), verifies `systemd-analyze verify` + restored `LoadState` + legacy `WorkingDirectory` + loopback healthcheck, and **never** auto-restores `pdh_healthcheck`.
 
 ```bash
 APPROVED_MIGRATIONS_SHA256="$DIGEST" \
@@ -69,8 +70,11 @@ CONFIRM_PRODUCTION_CUTOVER=pdh_healthcheck \
 
 ---
 
-## Step 4 — Manual Application-Only Rollback (If Required)
-Never auto-restore `pdh_healthcheck`. Use the exact `Systemd Unit Backup` directory printed in Step 2:
+## Step 4 — Manual Application-Only Rollback & Operator Recovery
+Never auto-restore `pdh_healthcheck`. Check the latest directory under `/var/www/pdhcheckup/shared/production/systemd-backups/<UTC-TS>/rollback-state.json`:
+- If automatic rollback already reported `ROLLBACK_SUCCEEDED=true` (`phase: "rolled_back"`): confirm `systemctl status pdhcheckup-production.service`, `WorkingDirectory=/var/www/pdhcheckup/releases/rc01-e75f4d9`, and `https://pdhcheckup.pluakdaenghospital.cloud/api/v1/health`.
+- If cutover succeeded (`phase: "committed"`) and you need to revert manually, OR if automatic rollback stopped with `ROLLBACK_FAILED=true` (`phase: "rollback_failed"`): run the manual application-only rollback against the `<UTC-TS>` backup directory (it verifies checksums fail-closed, restores unit + drop-ins + `current` symlink, runs `systemctl daemon-reload`, `systemd-analyze verify`, verifies `LoadState=loaded`, restarts service, and verifies restored runtime + HTTPS health):
+
 ```bash
 SCHEMA_COMPATIBILITY_REVIEWED=true \
 CONFIRM_PRODUCTION_ROLLBACK=pdh_healthcheck \

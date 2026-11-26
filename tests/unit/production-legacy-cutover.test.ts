@@ -53,6 +53,8 @@ describe("production legacy-compatible cutover and rollback scripts", () => {
     expect(backup).toContain("BACKUP_FILE=");
     expect(backup).toContain("BACKUP_SHA256_FILE=");
     expect(cutover).not.toContain("ls -1t");
+    expect(cutover).not.toContain("grep -q '^CREATE TABLE '");
+    expect(cutover).not.toContain("ROLLBACK_DONE");
     expect(cutover).toContain("BACKUP_START_EPOCH");
     expect(cutover).toContain("rollback-state.json");
     expect(cutover).toContain("rollback-state.json.sha256");
@@ -60,11 +62,27 @@ describe("production legacy-compatible cutover and rollback scripts", () => {
     expect(cutover).toContain("dropins.sha256");
     expect(cutover).toContain("ACTIVATION_STARTED=true");
     expect(cutover).toContain("ACTIVATION_COMMITTED=true");
-    expect(cutover).toContain("ROLLBACK_DONE=true");
+    expect(cutover).toContain("ROLLBACK_IN_PROGRESS=true");
+    expect(cutover).toContain("ROLLBACK_SUCCEEDED=true");
+    expect(cutover).toContain("ROLLBACK_FAILED=true");
+    expect(cutover).toContain("systemd-analyze verify");
+    expect(cutover).toContain("verify_effective_systemd_config");
+    expect(cutover).toContain("EnvironmentFiles");
+    expect(cutover).toContain("ReadWritePaths");
+    expect(cutover).toContain("ProtectSystem");
+    expect(cutover).toContain("trap 'on_err $LINENO' ERR");
     expect(cutover).toContain("trap 'on_signal INT' INT");
     expect(cutover).toContain("trap 'on_signal TERM' TERM");
     expect(cutover).toContain("trap 'on_exit' EXIT");
     expect(cutover).toContain("verify_restored_legacy_runtime");
+
+    const stateCommitIdx = cutover.indexOf('write_rollback_state "committed"');
+    const evidenceShaIdx = cutover.indexOf('sha256sum -c "$(basename "$EVIDENCE_FILE.sha256")"');
+    const committedFlagIdx = cutover.indexOf("ACTIVATION_COMMITTED=true");
+    expect(stateCommitIdx).toBeGreaterThan(-1);
+    expect(evidenceShaIdx).toBeGreaterThan(-1);
+    expect(committedFlagIdx).toBeGreaterThan(evidenceShaIdx);
+    expect(committedFlagIdx).toBeGreaterThan(stateCommitIdx);
   });
 
   it("verifies checksums fail-closed and restored legacy runtime in manual rollback", () => {
@@ -76,6 +94,8 @@ describe("production legacy-compatible cutover and rollback scripts", () => {
     expect(rollback).toContain("sha256sum -c rollback-state.json.sha256");
     expect(rollback).toContain("sha256sum -c pdhcheckup-production.service.orig.sha256");
     expect(rollback).toContain("sha256sum -c ../dropins.sha256");
+    expect(rollback).toContain("systemd-analyze verify");
+    expect(rollback).toContain("LoadState");
     expect(rollback).toContain("RESTORED_WORKDIR");
     expect(rollback).toContain("sudo systemctl daemon-reload");
   });

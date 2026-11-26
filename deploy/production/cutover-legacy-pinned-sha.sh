@@ -49,7 +49,9 @@ chmod 700 "$TMP_WORK"
 
 ACTIVATION_STARTED=false
 ACTIVATION_COMMITTED=false
-ROLLBACK_DONE=false
+ROLLBACK_IN_PROGRESS=false
+ROLLBACK_SUCCEEDED=false
+ROLLBACK_FAILED=false
 SYS_BACKUP_DIR=""
 UNIT_PATH=""
 PREVIOUS_CURRENT=""
@@ -58,21 +60,39 @@ LEGACY_RUNTIME=""
 RELEASE=""
 LATEST_BACKUP=""
 BACKUP_SHA256=""
+EVIDENCE_FILE=""
+EVIDENCE_SHA256=""
+
+_restore_prev_rollback_state() {
+  local dir="$1" state_tmp="$2" sha_tmp="$3" state_prev="$4" sha_prev="$5"
+  rm -f -- "$state_tmp" "$sha_tmp"
+  if [[ -f $state_prev ]]; then
+    mv -Tf "$state_prev" "$dir/rollback-state.json" || true
+  fi
+  if [[ -f $sha_prev ]]; then
+    mv -Tf "$sha_prev" "$dir/rollback-state.json.sha256" || true
+  fi
+}
 
 write_rollback_state() {
   local phase="$1"
   local state_tmp="$SYS_BACKUP_DIR/rollback-state.json.tmp"
+  local state_prev="$SYS_BACKUP_DIR/rollback-state.json.prev"
+  local sha_tmp="$SYS_BACKUP_DIR/rollback-state.json.sha256.tmp"
+  local sha_prev="$SYS_BACKUP_DIR/rollback-state.json.sha256.prev"
   local dropin_dir="$SYS_BACKUP_DIR/dropins.orig"
   local had_dropins="false"
   if [[ -d $dropin_dir ]]; then
     had_dropins="true"
   fi
+  rm -f -- "$state_tmp" "$sha_tmp" "$state_prev" "$sha_prev"
+
   node -e '
     const fs = require("node:fs");
     const [
       outPath, phase, unitPath, unitOrigSha256, hadDropIns, dropInDir,
       origWorkDir, origExecStart, prevCurrent, legacyRuntime, targetRelease,
-      targetSha, backupFile, backupSha256
+      targetSha, backupFile, backupSha256, evidenceFile, evidenceSha256
     ] = process.argv.slice(1);
     const dropInNames = hadDropIns === "true" && fs.existsSync(dropInDir)
       ? fs.readdirSync(dropInDir).sort()
@@ -92,23 +112,74 @@ write_rollback_state() {
       targetSha,
       backupFile,
       backupSha256,
+      evidenceFile,
+      evidenceSha256,
     };
     fs.writeFileSync(outPath, JSON.stringify(state, null, 2) + "\n", { mode: 0o600 });
   ' "$state_tmp" "$phase" "$UNIT_PATH" "$UNIT_ORIG_SHA256" "$had_dropins" "$dropin_dir" \
     "$ORIGINAL_WORKDIR" "$PROD_EXEC_BEFORE" "$PREVIOUS_CURRENT" "$LEGACY_RUNTIME" "$RELEASE" \
-    "$SHA" "$LATEST_BACKUP" "$BACKUP_SHA256"
-  chmod 600 "$state_tmp"
-  mv -Tf "$state_tmp" "$SYS_BACKUP_DIR/rollback-state.json"
-  (cd "$SYS_BACKUP_DIR" && sha256sum rollback-state.json > rollback-state.json.sha256)
-  chmod 600 "$SYS_BACKUP_DIR/rollback-state.json.sha256"
+    "$SHA" "$LATEST_BACKUP" "$BACKUP_SHA256" "$EVIDENCE_FILE" "$EVIDENCE_SHA256" || {
+      rm -f -- "$state_tmp"
+      return 1
+    }
+  chmod 600 "$state_tmp" || { rm -f -- "$state_tmp"; return 1; }
+
+  local state_digest
+  state_digest=$(sha256sum "$state_tmp" | cut -d' ' -f1) || {
+    rm -f -- "$state_tmp" "$sha_tmp"
+    return 1
+  }
+  [[ $state_digest =~ ^[a-f0-9]{64}$ ]] || {
+    rm -f -- "$state_tmp" "$sha_tmp"
+    return 1
+  }
+  printf '%s  %s\n' "$state_digest" "rollback-state.json" > "$sha_tmp" || {
+    rm -f -- "$state_tmp" "$sha_tmp"
+    return 1
+  }
+  chmod 600 "$sha_tmp" || { rm -f -- "$state_tmp" "$sha_tmp"; return 1; }
+
+  if [[ -f $SYS_BACKUP_DIR/rollback-state.json ]]; then
+    cp -a "$SYS_BACKUP_DIR/rollback-state.json" "$state_prev" || {
+      rm -f -- "$state_tmp" "$sha_tmp" "$state_prev"
+      return 1
+    }
+  fi
+  if [[ -f $SYS_BACKUP_DIR/rollback-state.json.sha256 ]]; then
+    cp -a "$SYS_BACKUP_DIR/rollback-state.json.sha256" "$sha_prev" || {
+      rm -f -- "$state_tmp" "$sha_tmp" "$state_prev" "$sha_prev"
+      return 1
+    }
+  fi
+
+  mv -Tf "$state_tmp" "$SYS_BACKUP_DIR/rollback-state.json" || {
+    _restore_prev_rollback_state "$SYS_BACKUP_DIR" "$state_tmp" "$sha_tmp" "$state_prev" "$sha_prev"
+    return 1
+  }
+  mv -Tf "$sha_tmp" "$SYS_BACKUP_DIR/rollback-state.json.sha256" || {
+    _restore_prev_rollback_state "$SYS_BACKUP_DIR" "$state_tmp" "$sha_tmp" "$state_prev" "$sha_prev"
+    return 1
+  }
+  (cd "$SYS_BACKUP_DIR" && sha256sum -c rollback-state.json.sha256 >/dev/null) || {
+    _restore_prev_rollback_state "$SYS_BACKUP_DIR" "$state_tmp" "$sha_tmp" "$state_prev" "$sha_prev"
+    return 1
+  }
+  rm -f -- "$state_prev" "$sha_prev"
 }
 
 verify_restored_legacy_runtime() {
   local expected_workdir="$1"
   local expected_prev="$2"
+  local load_state=""
   local active_state="unknown"
   local main_pid="0"
   local actual_workdir="unknown"
+
+  load_state=$(systemctl show "$SERVICE" -p LoadState --value 2>/dev/null || echo "")
+  if [[ -n $load_state && $load_state != "loaded" ]]; then
+    echo "ROLLBACK ERROR: $SERVICE LoadState='$load_state' after restore (expected loaded)" >&2
+    return 1
+  fi
 
   systemctl is-active --quiet "$SERVICE" || {
     echo "ROLLBACK ERROR: $SERVICE is not active after restore" >&2
@@ -147,14 +218,7 @@ verify_restored_legacy_runtime() {
   }
 }
 
-rollback_application_only() {
-  if [[ $ROLLBACK_DONE == true ]]; then
-    return 0
-  fi
-  ROLLBACK_DONE=true
-
-  echo "ACTIVATION FAILED: Executing fail-closed application-only rollback (Production DB untouched)..." >&2
-
+perform_rollback_steps() {
   if [[ -z $SYS_BACKUP_DIR || ! -d $SYS_BACKUP_DIR ]]; then
     echo "CRITICAL ROLLBACK FAILURE: Systemd backup directory missing" >&2
     return 1
@@ -207,51 +271,94 @@ rollback_application_only() {
       echo "CRITICAL ROLLBACK FAILURE: Drop-in backup checksum mismatch" >&2
       return 1
     }
-    sudo rm -rf -- "${st_unit_path}.d"
-    sudo mkdir -p "${st_unit_path}.d"
-    sudo cp -a "$SYS_BACKUP_DIR/dropins.orig/." "${st_unit_path}.d/"
+    sudo rm -rf -- "${st_unit_path}.d" || return 1
+    sudo mkdir -p "${st_unit_path}.d" || return 1
+    sudo cp -a "$SYS_BACKUP_DIR/dropins.orig/." "${st_unit_path}.d/" || return 1
   elif [[ -d "${st_unit_path}.d" ]]; then
-    sudo rm -rf -- "${st_unit_path}.d"
+    sudo rm -rf -- "${st_unit_path}.d" || return 1
   fi
 
-  sudo cp -a "$SYS_BACKUP_DIR/pdhcheckup-production.service.orig" "$st_unit_path"
+  sudo cp -a "$SYS_BACKUP_DIR/pdhcheckup-production.service.orig" "$st_unit_path" || return 1
 
   if [[ -n $st_prev_current ]]; then
-    ln -s "$st_prev_current" "$RELEASES/current.rollback"
-    mv -Tf "$RELEASES/current.rollback" "$RELEASES/current"
+    ln -s "$st_prev_current" "$RELEASES/current.rollback" || return 1
+    mv -Tf "$RELEASES/current.rollback" "$RELEASES/current" || return 1
   else
-    rm -f -- "$RELEASES/current"
+    rm -f -- "$RELEASES/current" || return 1
   fi
 
-  sudo systemctl daemon-reload
-  sudo systemctl restart "$SERVICE"
+  sudo systemctl daemon-reload || return 1
+  if command -v systemd-analyze >/dev/null 2>&1; then
+    sudo systemd-analyze verify "$st_unit_path" || return 1
+  fi
+  sudo systemctl restart "$SERVICE" || return 1
   verify_restored_legacy_runtime "$st_orig_workdir" "$st_prev_current" || return 1
+}
 
-  write_rollback_state "rolled_back" || true
-  echo "Application-only rollback verified against restored legacy runtime ($st_orig_workdir). Production DB untouched." >&2
+rollback_application_only() {
+  if [[ $ROLLBACK_SUCCEEDED == true ]]; then
+    return 0
+  fi
+  if [[ $ROLLBACK_IN_PROGRESS == true ]]; then
+    echo "ROLLBACK IN PROGRESS: skipping re-entrant invocation" >&2
+    return 1
+  fi
+
+  ROLLBACK_IN_PROGRESS=true
+  ROLLBACK_FAILED=false
+  echo "ACTIVATION FAILED: Executing fail-closed application-only rollback (ROLLBACK_IN_PROGRESS=true, Production DB untouched)..." >&2
+
+  if perform_rollback_steps; then
+    ROLLBACK_IN_PROGRESS=false
+    ROLLBACK_SUCCEEDED=true
+    ROLLBACK_FAILED=false
+    write_rollback_state "rolled_back" || true
+    echo "Application-only rollback verified against restored legacy runtime ($ORIGINAL_WORKDIR) (ROLLBACK_SUCCEEDED=true). Production DB untouched." >&2
+    return 0
+  fi
+
+  ROLLBACK_IN_PROGRESS=false
+  ROLLBACK_SUCCEEDED=false
+  ROLLBACK_FAILED=true
+  write_rollback_state "rollback_failed" || true
+  return 1
+}
+
+on_err() {
+  local rc=$?
+  local line="${1:-unknown}"
+  echo "ERR TRAP: command exited with status $rc at line $line" >&2
 }
 
 on_signal() {
   local sig="$1"
+  local exit_code=130
+  if [[ $sig == "TERM" ]]; then
+    exit_code=143
+  fi
   echo "SIGNAL RECEIVED: $sig" >&2
-  if [[ $ACTIVATION_STARTED == true && $ACTIVATION_COMMITTED == false ]]; then
+  if [[ $ACTIVATION_STARTED == true && $ACTIVATION_COMMITTED == false && $ROLLBACK_SUCCEEDED == false ]]; then
     rollback_application_only || true
   fi
   rm -rf -- "$TMP_WORK"
-  exit 130
+  exit "$exit_code"
 }
 
 on_exit() {
   local rc=$?
-  if [[ $rc -ne 0 && $ACTIVATION_STARTED == true && $ACTIVATION_COMMITTED == false ]]; then
+  if [[ $rc -ne 0 && $ACTIVATION_STARTED == true && $ACTIVATION_COMMITTED == false && $ROLLBACK_SUCCEEDED == false ]]; then
+    if [[ $ROLLBACK_FAILED == true ]]; then
+      echo "RETRYING ROLLBACK: Previous attempt recorded ROLLBACK_FAILED=true" >&2
+    fi
     if ! rollback_application_only; then
-      echo "FATAL: Automatic rollback failed; inspect $SYS_BACKUP_DIR immediately." >&2
+      echo "FATAL: Automatic rollback failed (ROLLBACK_FAILED=true); inspect $SYS_BACKUP_DIR immediately." >&2
     fi
   fi
   rm -rf -- "$TMP_WORK"
   return "$rc"
 }
 
+trap 'on_err $LINENO' ERR
 trap 'on_signal INT' INT
 trap 'on_signal TERM' TERM
 trap 'on_exit' EXIT
@@ -457,16 +564,25 @@ gzip -t "$LATEST_BACKUP" || die "Production backup gzip integrity check failed"
 (cd "$(dirname "$LATEST_BACKUP")" && sha256sum -c "$(basename "$LATEST_BACKUP_SHA_FILE")") || die "Production backup sha256 verification failed"
 BACKUP_SHA256=$(cut -d' ' -f1 "$LATEST_BACKUP_SHA_FILE")
 
-# Verify restore-readiness structure in dump (only pdh_healthcheck DB, contains CREATE TABLE)
-DUMP_HEADER_DBS=$(gzip -dc "$LATEST_BACKUP" | grep -E '^(CREATE DATABASE|USE )' || true)
-[[ -n $DUMP_HEADER_DBS ]] || die "Backup dump missing CREATE DATABASE / USE header"
-if printf '%s\n' "$DUMP_HEADER_DBS" | grep -vq 'pdh_healthcheck'; then
-  die "Backup dump contains unexpected database statement"
-fi
-if printf '%s\n' "$DUMP_HEADER_DBS" | grep -q 'pdh_healthcheck_staging'; then
-  die "Backup dump contains staging database reference"
-fi
-gzip -dc "$LATEST_BACKUP" | grep -q '^CREATE TABLE ' || die "Backup dump missing CREATE TABLE statements"
+# Verify restore-readiness structure via EOF-consuming scan (pipefail-safe for large dumps)
+DUMP_SCAN_RESULT=$(gzip -dc "$LATEST_BACKUP" | awk '
+  /^CREATE DATABASE / || /^USE / {
+    db_stmts++
+    if ($0 ~ /pdh_healthcheck_staging/) bad_staging++
+    else if ($0 !~ /`pdh_healthcheck`([ ;]|$)/ && $0 !~ /[ \t]pdh_healthcheck([ ;]|$)/) bad_other++
+  }
+  /^CREATE TABLE / {
+    tables++
+  }
+  END {
+    printf "%d|%d|%d|%d\n", db_stmts+0, bad_staging+0, bad_other+0, tables+0
+  }
+')
+IFS='|' read -r DUMP_DB_STMTS DUMP_BAD_STAGING DUMP_BAD_OTHER DUMP_CREATE_TABLES <<< "$DUMP_SCAN_RESULT"
+(( DUMP_DB_STMTS > 0 )) || die "Backup dump missing CREATE DATABASE / USE header"
+(( DUMP_BAD_STAGING == 0 )) || die "Backup dump contains staging database reference"
+(( DUMP_BAD_OTHER == 0 )) || die "Backup dump contains unexpected database statement"
+(( DUMP_CREATE_TABLES > 0 )) || die "Backup dump missing CREATE TABLE statements"
 
 # Re-verify DB identity and 14/14 migration checksums immediately before cutover (zero seed/reset/SQL writes)
 verify_production_db_state
@@ -564,8 +680,8 @@ if [[ -d "$SYS_BACKUP_DIR/dropins.orig" ]]; then
   node -e '
     const fs = require("node:fs");
     const path = require("node:path");
-    const [dir, workDir, nodeBin, legacyDir, prevDir] = process.argv.slice(1);
-    for (const entry of fs.readdirSync(dir)) {
+    const [dir, workDir, nodeBin, nextRw, legacyDir, prevDir] = process.argv.slice(1);
+    for (const entry of fs.readdirSync(dir).sort()) {
       if (!entry.endsWith(".conf")) continue;
       const p = path.join(dir, entry);
       if (!fs.statSync(p).isFile()) continue;
@@ -578,12 +694,98 @@ if [[ -d "$SYS_BACKUP_DIR/dropins.orig" ]]; then
         if (/^ExecStart=/.test(t) && t !== "ExecStart=" && ((legacyDir && t.includes(legacyDir)) || (prevDir && t.includes(prevDir)) || /server\.js/.test(t))) {
           return `ExecStart=${nodeBin} server.js`;
         }
+        if (/^ReadWritePaths=/.test(t)) {
+          const existing = t.slice("ReadWritePaths=".length).trim();
+          if (!existing) return line;
+          const parts = existing.split(/\s+/);
+          if (!parts.includes(nextRw)) parts.push(nextRw);
+          return `ReadWritePaths=${parts.join(" ")}`;
+        }
         return line;
       });
       fs.writeFileSync(p, lines.join("\n").replace(/\n*$/, "\n"), "utf8");
     }
-  ' "$DROPINS_RENDERED_DIR" "$TARGET_RUNTIME_DIR" "$NODE_BIN" "$LEGACY_RUNTIME" "$PREVIOUS_CURRENT"
+  ' "$DROPINS_RENDERED_DIR" "$TARGET_RUNTIME_DIR" "$NODE_BIN" "$TARGET_NEXT_RW" "$LEGACY_RUNTIME" "$PREVIOUS_CURRENT"
 fi
+
+verify_effective_systemd_config() {
+  if command -v systemd-analyze >/dev/null 2>&1; then
+    sudo systemd-analyze verify "$UNIT_PATH" || die "systemd-analyze verify failed for $UNIT_PATH"
+  fi
+
+  local load_state eff_user eff_workdir eff_exec eff_envfiles eff_rw eff_protect
+  load_state=$(systemctl show "$SERVICE" -p LoadState --value 2>/dev/null || echo "")
+  if [[ -n $load_state && $load_state != "loaded" ]]; then
+    die "Effective systemd LoadState='$load_state' (expected loaded)"
+  fi
+
+  eff_user=$(systemctl show "$SERVICE" -p User --value 2>/dev/null || echo "")
+  [[ $eff_user == "pdhcheckup" ]] || die "Effective systemd User mismatch: '$eff_user' != 'pdhcheckup'"
+
+  eff_workdir=$(systemctl show "$SERVICE" -p WorkingDirectory --value 2>/dev/null || echo "")
+  [[ $eff_workdir == "$TARGET_RUNTIME_DIR" ]] || die "Effective WorkingDirectory mismatch: '$eff_workdir' != '$TARGET_RUNTIME_DIR'"
+
+  eff_exec=$(systemctl show "$SERVICE" -p ExecStart --value 2>/dev/null || echo "")
+  node -e '
+    const [raw, nodeBin, legacyDir] = process.argv.slice(1);
+    const braced = raw.match(/\{[^}]*\}/g);
+    const entries = braced
+      ? braced.map((s) => s.trim()).filter(Boolean)
+      : raw.split(/\r?\n/).map((s) => s.trim()).filter((s) => s && s !== "ExecStart=");
+    if (entries.length !== 1) {
+      throw new Error(`Expected exactly 1 effective ExecStart entry, got ${entries.length}: ${raw}`);
+    }
+    const e = entries[0];
+    if (!e.includes(nodeBin) || !e.includes("server.js")) {
+      throw new Error(`Effective ExecStart does not point to ${nodeBin} server.js: ${e}`);
+    }
+    if (legacyDir && e.includes(legacyDir)) {
+      throw new Error(`Effective ExecStart still references legacy dir ${legacyDir}: ${e}`);
+    }
+  ' "$eff_exec" "$NODE_BIN" "$LEGACY_RUNTIME" || die "Effective ExecStart validation failed"
+
+  eff_envfiles=$(systemctl show "$SERVICE" -p EnvironmentFiles --value 2>/dev/null || echo "")
+  if [[ -n $eff_envfiles ]]; then
+    [[ $eff_envfiles != *"staging"* ]] || die "Effective EnvironmentFiles references staging: $eff_envfiles"
+    local required_env_paths=""
+    required_env_paths=$(node -e '
+      const raw = process.argv[1];
+      const tokens = [];
+      const re = /([^\s()]+)(?:\s*\(([^)]*)\))?/g;
+      let m;
+      while ((m = re.exec(raw)) !== null) {
+        let p = m[1];
+        const meta = m[2] || "";
+        const optional = p.startsWith("-") || meta.includes("ignore_errors=yes");
+        if (p.startsWith("-")) p = p.slice(1);
+        if (!optional && (p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p))) tokens.push(p);
+      }
+      console.log(tokens.join("\n"));
+    ' "$eff_envfiles")
+    if [[ -n $required_env_paths ]]; then
+      while IFS= read -r env_p; do
+        [[ -z $env_p ]] && continue
+        [[ -f $env_p ]] || die "Effective EnvironmentFile missing: $env_p"
+        if [[ $env_p == "$ENV_FILE" ]]; then
+          [[ $(stat -c %a "$env_p") == "600" ]] || die "Effective EnvironmentFile mode invalid: $env_p"
+        fi
+      done <<< "$required_env_paths"
+    fi
+  fi
+
+  eff_rw=$(systemctl show "$SERVICE" -p ReadWritePaths --value 2>/dev/null || echo "")
+  eff_protect=$(systemctl show "$SERVICE" -p ProtectSystem --value 2>/dev/null || echo "")
+  if [[ -n $eff_rw || $eff_protect == "strict" || $eff_protect == "full" ]]; then
+    if [[ $eff_rw != *"$TARGET_NEXT_RW"* && $eff_rw != *"$TARGET_RUNTIME_DIR"* && $eff_rw != *"$RELEASES"* ]]; then
+      die "Effective ReadWritePaths ('$eff_rw') omits runtime .next path ($TARGET_NEXT_RW) under ProtectSystem=$eff_protect"
+    fi
+  fi
+
+  [[ -r "$TARGET_RUNTIME_DIR/server.js" && -d "$TARGET_NEXT_RW" && -w "$TARGET_NEXT_RW" ]] || die "Runtime permissions invalid at $TARGET_RUNTIME_DIR"
+  if id -u pdhcheckup >/dev/null 2>&1; then
+    sudo -u pdhcheckup test -r "$TARGET_RUNTIME_DIR/server.js" && sudo -u pdhcheckup test -w "$TARGET_NEXT_RW" || die "Service user pdhcheckup lacks required runtime permissions"
+  fi
+}
 
 # Begin transactional activation (any failure or signal from here triggers idempotent rollback)
 ACTIVATION_STARTED=true
@@ -603,6 +805,7 @@ fi
 write_rollback_state "unit_updated"
 
 sudo systemctl daemon-reload
+verify_effective_systemd_config
 sudo systemctl restart "$SERVICE"
 write_rollback_state "restarted"
 
@@ -659,16 +862,15 @@ if [[ -d $SOURCE/.git ]]; then
   [[ $SOURCE_HEAD_AFTER == "$SOURCE_HEAD_BEFORE" && $SOURCE_STATUS_AFTER == "$SOURCE_STATUS_BEFORE" ]] || die "Shared source checkout changed unexpectedly"
 fi
 
-# Commit activation only after every post-cutover verification succeeds
-ACTIVATION_COMMITTED=true
-write_rollback_state "committed"
-
-# Emit sanitized deployment evidence (no secrets, passwords, or PHI)
+# Write and verify sanitized evidence + final committed state BEFORE committing transaction
 EVIDENCE_DIR="$BASE/shared/production/evidence"
 mkdir -p "$EVIDENCE_DIR"
 chmod 700 "$EVIDENCE_DIR"
 EVIDENCE_FILE="$EVIDENCE_DIR/cutover-$CUTOVER_TS-$SHA.txt"
-cat > "$EVIDENCE_FILE" <<EOF
+EVIDENCE_TMP="$EVIDENCE_FILE.tmp"
+EVIDENCE_SHA_TMP="$EVIDENCE_FILE.sha256.tmp"
+
+cat > "$EVIDENCE_TMP" <<EOF
 PDH Smart Health Check — Production Cutover Evidence (Sanitized)
 Timestamp (UTC):       $CUTOVER_TS
 Branch:                $BRANCH
@@ -686,5 +888,15 @@ HTTPS Health:          $HTTPS_HEALTH
 Unauth Admin Gate:     /admin/dashboard -> HTTP $admin_code, /api/v1/admin/audit -> HTTP $audit_code
 Staging Unchanged:     $STAGING_SERVICE ($STAGING_ACTIVE_AFTER, PID=$STAGING_PID_AFTER)
 EOF
-chmod 600 "$EVIDENCE_FILE"
+chmod 600 "$EVIDENCE_TMP"
+EVIDENCE_SHA256=$(sha256sum "$EVIDENCE_TMP" | cut -d' ' -f1)
+[[ $EVIDENCE_SHA256 =~ ^[a-f0-9]{64}$ ]] || die "Failed to compute sanitized evidence SHA-256"
+printf '%s  %s\n' "$EVIDENCE_SHA256" "$(basename "$EVIDENCE_FILE")" > "$EVIDENCE_SHA_TMP"
+chmod 600 "$EVIDENCE_SHA_TMP"
+mv -Tf "$EVIDENCE_TMP" "$EVIDENCE_FILE"
+mv -Tf "$EVIDENCE_SHA_TMP" "$EVIDENCE_FILE.sha256"
+(cd "$EVIDENCE_DIR" && sha256sum -c "$(basename "$EVIDENCE_FILE.sha256")" >/dev/null) || die "Sanitized evidence checksum verification failed"
+
+write_rollback_state "committed"
+ACTIVATION_COMMITTED=true
 cat "$EVIDENCE_FILE"

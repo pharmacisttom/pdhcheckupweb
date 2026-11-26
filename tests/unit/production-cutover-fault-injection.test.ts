@@ -181,7 +181,11 @@ function setupIsolatedFixture() {
     { mode: 0o600 },
   );
 
-  // Legacy systemd unit + site-specific drop-in
+  // Legacy runtime minimal files (server.js + .next) for systemd permission & ExecStart checks
+  writeFileSync(join(legacyRuntime, "server.js"), "console.log('legacy');\n");
+  mkdirSync(join(legacyRuntime, ".next"), { recursive: true });
+
+  // Legacy systemd unit + multi-drop-in site configuration
   const origUnitContent = [
     "[Unit]",
     "Description=PDH Legacy Production",
@@ -199,10 +203,14 @@ function setupIsolatedFixture() {
     "",
   ].join("\n");
   writeFileSync(unitFile, origUnitContent);
-  writeFileSync(
-    join(dropinDir, "10-custom.conf"),
-    `[Service]\nEnvironment=DROPIN_KEEP=1\nWorkingDirectory=${toPosix(legacyRuntime)}\n`,
-  );
+  const origDropins: Record<string, string> = {
+    "10-env.conf": `[Service]\nEnvironmentFile=${toPosix(deployRoot)}/shared/production/.env\n`,
+    "20-override.conf": `[Service]\nWorkingDirectory=${toPosix(legacyRuntime)}\nExecStart=\nExecStart=/usr/bin/node server.js\n`,
+    "30-hardening.conf": `[Service]\nProtectSystem=strict\nReadWritePaths=${toPosix(legacyRuntime)}/.next\nEnvironment=DROPIN_KEEP=1\n`,
+  };
+  for (const [name, content] of Object.entries(origDropins)) {
+    writeFileSync(join(dropinDir, name), content);
+  }
 
   // Track mock service state
   writeFileSync(join(stateDir, "prod-active"), "active");
@@ -214,6 +222,106 @@ function setupIsolatedFixture() {
   );
   writeFileSync(join(stateDir, "calls.log"), "");
 
+  // Helper to evaluate effective systemd properties & ExecStart resets across unit + sorted drop-ins
+  writeFileSync(
+    join(stateDir, "systemd-eval.cjs"),
+    `
+const fs = require("node:fs");
+const path = require("node:path");
+
+const [mode, prop, unitFile, dropinDir, stateDir] = process.argv.slice(2);
+const files = [unitFile];
+if (fs.existsSync(dropinDir)) {
+  for (const name of fs.readdirSync(dropinDir).sort()) {
+    if (name.endsWith(".conf")) files.push(path.join(dropinDir, name));
+  }
+}
+
+let user = "";
+let workdir = "";
+let protectSystem = "";
+let envFiles = [];
+let rwPaths = [];
+let execList = [];
+let hasDuplicateUnresetExec = false;
+
+for (const f of files) {
+  if (!fs.existsSync(f)) continue;
+  let inService = false;
+  for (const rawLine of fs.readFileSync(f, "utf8").split(/\\r?\\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#") || line.startsWith(";")) continue;
+    if (/^\\[.+\\]$/.test(line)) {
+      inService = line === "[Service]";
+      continue;
+    }
+    if (!inService) continue;
+    const eq = line.indexOf("=");
+    if (eq === -1) continue;
+    const key = line.slice(0, eq).trim();
+    const val = line.slice(eq + 1).trim();
+    if (key === "User") user = val;
+    else if (key === "WorkingDirectory") workdir = val;
+    else if (key === "ProtectSystem") protectSystem = val;
+    else if (key === "EnvironmentFile") {
+      if (val === "") envFiles = [];
+      else envFiles.push(val);
+    } else if (key === "ReadWritePaths") {
+      if (val === "") rwPaths = [];
+      else rwPaths.push(...val.split(/\\s+/).filter(Boolean));
+    } else if (key === "ExecStart") {
+      if (val === "") {
+        execList = [];
+      } else {
+        if (execList.length > 0) hasDuplicateUnresetExec = true;
+        execList.push(val);
+      }
+    }
+  }
+}
+
+if (mode === "verify") {
+  if (fs.existsSync(path.join(stateDir, "fail-systemd-analyze"))) {
+    console.error("systemd-analyze verify: injected unit verification failure");
+    process.exit(1);
+  }
+  if (hasDuplicateUnresetExec || execList.length !== 1) {
+    console.error("Service has invalid ExecStart count (" + execList.length + ") without ExecStart= reset");
+    process.exit(1);
+  }
+  if (!workdir) {
+    console.error("Missing WorkingDirectory");
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+if (prop === "LoadState") {
+  if (fs.existsSync(path.join(stateDir, "fail-load-state")) || hasDuplicateUnresetExec) {
+    console.log("bad-setting");
+  } else {
+    console.log("loaded");
+  }
+} else if (prop === "User") {
+  if (fs.existsSync(path.join(stateDir, "force-wrong-user"))) {
+    console.log("root");
+  } else {
+    console.log(user);
+  }
+} else if (prop === "WorkingDirectory") {
+  console.log(workdir);
+} else if (prop === "ExecStart") {
+  console.log(execList.map((e) => "{ path=" + e.split(/\\s+/)[0] + " ; argv[]=" + e + " ; ignore_errors=no }").join("\\n"));
+} else if (prop === "EnvironmentFiles") {
+  console.log(envFiles.map((p) => p + " (ignore_errors=no)").join(" "));
+} else if (prop === "ReadWritePaths") {
+  console.log(rwPaths.join(" "));
+} else if (prop === "ProtectSystem") {
+  console.log(protectSystem);
+}
+`,
+  );
+
   const writeMock = (name: string, body: string) => {
     const p = join(mockBin, name);
     writeFileSync(p, body.replace(/\r\n/g, "\n"), "utf8");
@@ -221,7 +329,24 @@ function setupIsolatedFixture() {
   };
 
   // Mock commands
-  writeMock("sudo", `#!/usr/bin/env bash\nexec "$@"\n`);
+  writeMock(
+    "sudo",
+    `#!/usr/bin/env bash
+STATE_DIR="${toPosix(stateDir)}"
+DROPIN_DIR="${toPosix(dropinDir)}"
+if [[ $1 == "-u" ]]; then
+  shift 2
+fi
+if [[ -f "$STATE_DIR/inject-bad-exec-on-cp" && ! -f "$STATE_DIR/bad-exec-injected" && $1 == "cp" && "$*" == *"$DROPIN_DIR"* ]]; then
+  touch "$STATE_DIR/bad-exec-injected"
+  "$@"
+  rc=$?
+  printf '[Service]\\nExecStart=/usr/bin/node stale.js\\n' > "$DROPIN_DIR/99-bad-exec.conf"
+  exit $rc
+fi
+exec "$@"
+`,
+  );
   writeMock("flock", `#!/usr/bin/env bash\nexit 0\n`);
   writeMock("id", `#!/usr/bin/env bash\necho 1000\n`);
   writeMock("chown", `#!/usr/bin/env bash\nexit 0\n`);
@@ -240,16 +365,46 @@ exec /usr/bin/stat "$@"
 `,
   );
 
-  if (process.platform === "win32") {
-    writeMock(
-      "node",
-      `#!/usr/bin/env bash
+  writeMock(
+    "node",
+    `#!/usr/bin/env bash
+STATE_DIR="${toPosix(stateDir)}"
+if [[ -f "$STATE_DIR/fail-commit-state" && $1 == "-e" && $3 == *"rollback-state.json.tmp" && $4 == "committed" ]]; then
+  exit 1
+fi
 if [[ \${1:-} == --env-file=* && \${2:-} == */run.mjs && ( \${3:-} == "npm" || \${3:-} == "npx" ) ]]; then
   exec "${toPosix(mockBin)}/$3" "\${@:4}"
 fi
 exec "${toPosix(process.execPath)}" "$@"
 `,
-    );
+  );
+
+  writeMock(
+    "sha256sum",
+    `#!/usr/bin/env bash
+STATE_DIR="${toPosix(stateDir)}"
+if [[ -f "$STATE_DIR/fail-commit-checksum" && $1 == *"rollback-state.json.tmp" ]] && grep -q '"phase": "committed"' "$1" 2>/dev/null; then
+  exit 1
+fi
+exec /usr/bin/sha256sum "$@"
+`,
+  );
+
+  writeMock(
+    "systemd-analyze",
+    `#!/usr/bin/env bash
+STATE_DIR="${toPosix(stateDir)}"
+UNIT_FILE="${toPosix(unitFile)}"
+DROPIN_DIR="${toPosix(dropinDir)}"
+echo "systemd-analyze $*" >> "$STATE_DIR/calls.log"
+if [[ $1 == "verify" ]]; then
+  exec "${toPosix(process.execPath)}" "$STATE_DIR/systemd-eval.cjs" verify "" "$UNIT_FILE" "$DROPIN_DIR" "$STATE_DIR"
+fi
+exit 0
+`,
+  );
+
+  if (process.platform === "win32") {
     writeMock(
       "ln",
       `#!/usr/bin/env bash
@@ -338,23 +493,7 @@ if [[ $cmd == "show" ]]; then
   fi
   if [[ $prop == "FragmentPath" ]]; then echo "$UNIT_FILE"; exit 0; fi
   if [[ $prop == "MainPID" ]]; then cat "$STATE_DIR/prod-pid"; exit 0; fi
-  if [[ $prop == "WorkingDirectory" ]]; then
-    wd=$(grep -E '^WorkingDirectory=' "$UNIT_FILE" | tail -n1 | cut -d= -f2-)
-    if [[ -d "${toPosix(dropinDir)}" ]]; then
-      for f in "${toPosix(dropinDir)}"/*.conf; do
-        [[ -f $f ]] || continue
-        dwd=$(grep -E '^WorkingDirectory=' "$f" | tail -n1 | cut -d= -f2- || true)
-        [[ -n $dwd ]] && wd="$dwd"
-      done
-    fi
-    echo "$wd"
-    exit 0
-  fi
-  if [[ $prop == "ExecStart" ]]; then
-    grep -E '^ExecStart=' "$UNIT_FILE" | tail -n1 | cut -d= -f2-
-    exit 0
-  fi
-  exit 0
+  exec "${toPosix(process.execPath)}" "$STATE_DIR/systemd-eval.cjs" show "$prop" "$UNIT_FILE" "${toPosix(dropinDir)}" "$STATE_DIR"
 fi
 if [[ $cmd == "daemon-reload" ]]; then
   if [[ -f "$STATE_DIR/fail-daemon-reload" && ! -f "$STATE_DIR/daemon-reload-failed-once" ]]; then
@@ -412,11 +551,22 @@ exit 0
     `#!/usr/bin/env bash
 STATE_DIR="${toPosix(stateDir)}"
 echo "mysqldump $*" >> "$STATE_DIR/calls.log"
+if [[ -f "$STATE_DIR/bad-staging-dump" ]]; then
+  cat <<'SQL'
+CREATE DATABASE /*!32312 IF NOT EXISTS*/ \`pdh_healthcheck_staging\`;
+USE \`pdh_healthcheck_staging\`;
+CREATE TABLE \`User\` (\`id\` varchar(191) NOT NULL);
+SQL
+  exit 0
+fi
 cat <<'SQL'
 CREATE DATABASE /*!32312 IF NOT EXISTS*/ \`pdh_healthcheck\`;
 USE \`pdh_healthcheck\`;
 CREATE TABLE \`User\` (\`id\` varchar(191) NOT NULL);
 SQL
+if [[ -f "$STATE_DIR/large-sql-dump" ]]; then
+  awk 'BEGIN { for (i = 1; i <= 55000; i++) print "INSERT INTO User VALUES (" i "_padding_for_realistic_large_dump_size_verification);" }'
+fi
 `,
   );
 
@@ -501,6 +651,7 @@ exit 0
     pinnedSha,
     migrationDigest,
     origUnitContent,
+    origDropins,
     env,
   };
 }
@@ -588,10 +739,19 @@ describe("production legacy cutover functional fault-injection suite", () => {
     expect(updatedUnit).toContain(
       `WorkingDirectory=${toPosix(fx.deployRoot)}/releases/production/current/runtime`,
     );
-    const updatedDropin = readFileSync(join(fx.dropinDir, "10-custom.conf"), "utf8");
-    expect(updatedDropin).toContain("Environment=DROPIN_KEEP=1");
-    expect(updatedDropin).toContain(
+    expect(readFileSync(join(fx.dropinDir, "10-env.conf"), "utf8")).toBe(
+      fx.origDropins["10-env.conf"],
+    );
+    const updatedOverride = readFileSync(join(fx.dropinDir, "20-override.conf"), "utf8");
+    expect(updatedOverride).toContain("ExecStart=\n");
+    expect(updatedOverride).toContain(
       `WorkingDirectory=${toPosix(fx.deployRoot)}/releases/production/current/runtime`,
+    );
+    const updatedHardening = readFileSync(join(fx.dropinDir, "30-hardening.conf"), "utf8");
+    expect(updatedHardening).toContain("Environment=DROPIN_KEEP=1");
+    expect(updatedHardening).toContain("ProtectSystem=strict");
+    expect(updatedHardening).toContain(
+      `${toPosix(fx.deployRoot)}/releases/production/current/runtime/.next`,
     );
 
     const revPath = join(
@@ -627,6 +787,15 @@ describe("production legacy cutover functional fault-injection suite", () => {
     );
     expect(stateJson.phase).toBe("committed");
     expect(stateJson.hadDropIns).toBe(true);
+    expect(stateJson.dropInNames).toEqual([
+      "10-env.conf",
+      "20-override.conf",
+      "30-hardening.conf",
+    ]);
+    expect(stateJson.evidenceSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(existsSync(join(fx.deployRoot, "shared", "production", "evidence"))).toBe(true);
+    const calls = readFileSync(join(fx.stateDir, "calls.log"), "utf8");
+    expect(calls).toContain("systemd-analyze verify");
   }, 90000);
 
   it("rolls back automatically on daemon-reload failure and restores exact original unit, drop-in, and legacy runtime", () => {
@@ -639,10 +808,11 @@ describe("production legacy cutover functional fault-injection suite", () => {
     );
     expect(res.status).not.toBe(0);
     expect(res.stderr).toContain("Application-only rollback verified against restored legacy runtime");
+    expect(res.stderr).toContain("ROLLBACK_SUCCEEDED=true");
     expect(readFileSync(fx.unitFile, "utf8")).toBe(fx.origUnitContent);
-    expect(readFileSync(join(fx.dropinDir, "10-custom.conf"), "utf8")).toContain(
-      toPosix(fx.legacyRuntime),
-    );
+    for (const [name, content] of Object.entries(fx.origDropins)) {
+      expect(readFileSync(join(fx.dropinDir, name), "utf8")).toBe(content);
+    }
     expect(existsSync(join(fx.deployRoot, "releases", "production", "current"))).toBe(
       false,
     );
@@ -717,7 +887,7 @@ describe("production legacy cutover functional fault-injection suite", () => {
     expect(readFileSync(fx.unitFile, "utf8")).toBe(fx.origUnitContent);
   }, 90000);
 
-  it("fails closed if restored legacy runtime fails healthcheck during rollback", () => {
+  it("fails closed if restored legacy runtime fails healthcheck during rollback and records rollback_failed", () => {
     const fx = setupIsolatedFixture();
     writeFileSync(join(fx.stateDir, "fail-https-health"), "1");
     writeFileSync(join(fx.stateDir, "fail-legacy-health"), "1");
@@ -727,10 +897,28 @@ describe("production legacy cutover functional fault-injection suite", () => {
       { CONFIRM_PRODUCTION_CUTOVER: "pdh_healthcheck" },
     );
     expect(res.status).not.toBe(0);
-    expect(res.stderr).toContain("FATAL: Automatic rollback failed");
+    expect(res.stderr).toContain("FATAL: Automatic rollback failed (ROLLBACK_FAILED=true)");
+    const backupDirs = readdirSync(
+      join(fx.deployRoot, "shared", "production", "systemd-backups"),
+    );
+    expect(backupDirs.length).toBe(1);
+    const stateJson = JSON.parse(
+      readFileSync(
+        join(
+          fx.deployRoot,
+          "shared",
+          "production",
+          "systemd-backups",
+          backupDirs[0],
+          "rollback-state.json",
+        ),
+        "utf8",
+      ),
+    );
+    expect(stateJson.phase).toBe("rollback_failed");
   }, 90000);
 
-  it("manual rollback-legacy-cutover.sh fails closed on tampered unit/state checksums and succeeds when valid", () => {
+  it("manual rollback-legacy-cutover.sh fails closed on tampered unit/state checksums and restores multi-drop-ins when valid", () => {
     const fx = setupIsolatedFixture();
     const ok = runCutover(
       fx,
@@ -789,9 +977,112 @@ describe("production legacy cutover functional fault-injection suite", () => {
     expect(passRb.status, passRb.stderr).toBe(0);
     expect(passRb.stdout).toContain("verified against restored runtime");
     expect(readFileSync(fx.unitFile, "utf8")).toBe(fx.origUnitContent);
+    for (const [name, content] of Object.entries(fx.origDropins)) {
+      expect(readFileSync(join(fx.dropinDir, name), "utf8")).toBe(content);
+    }
     expect(existsSync(join(fx.deployRoot, "releases", "production", "current"))).toBe(false);
     const calls = readFileSync(join(fx.stateDir, "calls.log"), "utf8");
     expect(sha256File(join(fx.deployRoot, "shared", "production", ".env"))).toBeTruthy();
     expect(calls).not.toContain("restore");
   }, 120000);
+
+  it("handles large (>4 MB) compressed SQL dumps without pipefail SIGPIPE and rejects staging-contaminated dumps", () => {
+    const fx = setupIsolatedFixture();
+    writeFileSync(join(fx.stateDir, "large-sql-dump"), "1");
+    const ok = runCutover(
+      fx,
+      ["feature/rc04-ui-impeccable-playwright", fx.pinnedSha],
+      { CONFIRM_PRODUCTION_CUTOVER: "pdh_healthcheck" },
+    );
+    expect(ok.status, ok.stderr).toBe(0);
+    expect(ok.stdout).toContain("Production Cutover Evidence (Sanitized)");
+
+    const fxBad = setupIsolatedFixture();
+    writeFileSync(join(fxBad.stateDir, "bad-staging-dump"), "1");
+    const bad = runCutover(
+      fxBad,
+      ["feature/rc04-ui-impeccable-playwright", fxBad.pinnedSha],
+      { CONFIRM_PRODUCTION_CUTOVER: "pdh_healthcheck" },
+    );
+    expect(bad.status).not.toBe(0);
+    expect(bad.stderr).toContain("staging database reference");
+    expect(readFileSync(fxBad.unitFile, "utf8")).toBe(fxBad.origUnitContent);
+  }, 150000);
+
+  it("rejects invalid effective systemd configuration (ExecStart override without reset or wrong User) before restart and rolls back", () => {
+    // Case A: Drop-in adds ExecStart without ExecStart= reset during unit installation -> systemd-analyze verify rejects before restart
+    const fxExec = setupIsolatedFixture();
+    writeFileSync(join(fxExec.stateDir, "inject-bad-exec-on-cp"), "1");
+    const resExec = runCutover(
+      fxExec,
+      ["feature/rc04-ui-impeccable-playwright", fxExec.pinnedSha],
+      { CONFIRM_PRODUCTION_CUTOVER: "pdh_healthcheck" },
+    );
+    expect(resExec.status).not.toBe(0);
+    expect(resExec.stderr).toContain("Application-only rollback verified against restored legacy runtime");
+    expect(readFileSync(fxExec.unitFile, "utf8")).toBe(fxExec.origUnitContent);
+    expect(existsSync(join(fxExec.dropinDir, "99-bad-exec.conf"))).toBe(false);
+    for (const [name, content] of Object.entries(fxExec.origDropins)) {
+      expect(readFileSync(join(fxExec.dropinDir, name), "utf8")).toBe(content);
+    }
+
+    // Case B: Effective User mismatch caught by verify_effective_systemd_config before restart
+    const fxUser = setupIsolatedFixture();
+    writeFileSync(join(fxUser.stateDir, "force-wrong-user"), "1");
+    const resUser = runCutover(
+      fxUser,
+      ["feature/rc04-ui-impeccable-playwright", fxUser.pinnedSha],
+      { CONFIRM_PRODUCTION_CUTOVER: "pdh_healthcheck" },
+    );
+    expect(resUser.status).not.toBe(0);
+    expect(resUser.stderr).toContain("Effective systemd User mismatch");
+    expect(resUser.stderr).toContain("Application-only rollback verified against restored legacy runtime");
+    expect(readFileSync(fxUser.unitFile, "utf8")).toBe(fxUser.origUnitContent);
+    for (const [name, content] of Object.entries(fxUser.origDropins)) {
+      expect(readFileSync(join(fxUser.dropinDir, name), "utf8")).toBe(content);
+    }
+  }, 150000);
+
+  it("rolls back cleanly on post-activation state-write, checksum-write, and evidence-write failures", () => {
+    // 1. State-write failure on 'committed'
+    const fxState = setupIsolatedFixture();
+    writeFileSync(join(fxState.stateDir, "fail-commit-state"), "1");
+    const rState = runCutover(
+      fxState,
+      ["feature/rc04-ui-impeccable-playwright", fxState.pinnedSha],
+      { CONFIRM_PRODUCTION_CUTOVER: "pdh_healthcheck" },
+    );
+    expect(rState.status).not.toBe(0);
+    expect(rState.stderr).toContain("Application-only rollback verified against restored legacy runtime");
+    expect(readFileSync(fxState.unitFile, "utf8")).toBe(fxState.origUnitContent);
+    expect(existsSync(join(fxState.deployRoot, "releases", "production", "current"))).toBe(false);
+
+    // 2. Checksum-write failure on 'committed' preserves prior valid state+checksum for rollback
+    const fxSum = setupIsolatedFixture();
+    writeFileSync(join(fxSum.stateDir, "fail-commit-checksum"), "1");
+    const rSum = runCutover(
+      fxSum,
+      ["feature/rc04-ui-impeccable-playwright", fxSum.pinnedSha],
+      { CONFIRM_PRODUCTION_CUTOVER: "pdh_healthcheck" },
+    );
+    expect(rSum.status).not.toBe(0);
+    expect(rSum.stderr).toContain("Application-only rollback verified against restored legacy runtime");
+    expect(readFileSync(fxSum.unitFile, "utf8")).toBe(fxSum.origUnitContent);
+    for (const [name, content] of Object.entries(fxSum.origDropins)) {
+      expect(readFileSync(join(fxSum.dropinDir, name), "utf8")).toBe(content);
+    }
+
+    // 3. Evidence-write failure (evidence path blocked by regular file) triggers automatic rollback
+    const fxEv = setupIsolatedFixture();
+    writeFileSync(join(fxEv.deployRoot, "shared", "production", "evidence"), "blocking-file\n");
+    const rEv = runCutover(
+      fxEv,
+      ["feature/rc04-ui-impeccable-playwright", fxEv.pinnedSha],
+      { CONFIRM_PRODUCTION_CUTOVER: "pdh_healthcheck" },
+    );
+    expect(rEv.status).not.toBe(0);
+    expect(rEv.stderr).toContain("Application-only rollback verified against restored legacy runtime");
+    expect(readFileSync(fxEv.unitFile, "utf8")).toBe(fxEv.origUnitContent);
+    expect(existsSync(join(fxEv.deployRoot, "releases", "production", "current"))).toBe(false);
+  }, 240000);
 });

@@ -112,6 +112,13 @@ else
 fi
 
 sudo systemctl daemon-reload
+if command -v systemd-analyze >/dev/null 2>&1; then
+  sudo systemd-analyze verify "$ST_UNIT_PATH" || die "systemd-analyze verify failed for restored $ST_UNIT_PATH"
+fi
+RESTORED_LOAD_STATE=$(systemctl show "$SERVICE" -p LoadState --value 2>/dev/null || echo "")
+if [[ -n $RESTORED_LOAD_STATE && $RESTORED_LOAD_STATE != "loaded" ]]; then
+  die "$SERVICE LoadState='$RESTORED_LOAD_STATE' after daemon-reload (expected loaded)"
+fi
 sudo systemctl restart "$SERVICE"
 
 systemctl is-active --quiet "$SERVICE" || die "$SERVICE failed to start after rollback"

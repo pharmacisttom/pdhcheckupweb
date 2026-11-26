@@ -41,3 +41,14 @@
 
 - **Production Cutover Executed:** **NO** (per instruction: do not merge or deploy Production before review).
 - **Security Boundary:** `0` changes to `prisma/`, `src/app/api/`, `src/server/`, `src/lib/`, or existing patient records.
+
+---
+
+## 4. Final Re-Review Blockers Closed (PR #10 Comment `#7197286687`)
+
+| # | Blocker | Resolution & Test Coverage |
+| :---: | :--- | :--- |
+| 1 | `gzip \| grep -q` SIGPIPE risk under `pipefail` | Replaced with EOF-consuming `awk` SQL scanner checking `CREATE DATABASE` / `USE` isolation and `CREATE TABLE`; tested with >4 MB large compressed SQL dump and staging-contaminated dump |
+| 2 | Premature `ROLLBACK_DONE=true` | Replaced with explicit `ROLLBACK_IN_PROGRESS`, `ROLLBACK_SUCCEEDED`, `ROLLBACK_FAILED` states updated only after `perform_rollback_steps` + `verify_restored_legacy_runtime` pass (or marked `rollback_failed` on failure) |
+| 3 | Premature `ACTIVATION_COMMITTED=true` before state/evidence writes | Writes and SHA-256-verifies evidence first, transactionally swaps `rollback-state.json` (`phase: "committed"`, preserving previous state on error), and sets `ACTIVATION_COMMITTED=true` last; tested for state-write, checksum-write, and evidence-write failures |
+| 4 | Effective systemd verification & multi-drop-ins | Preserves `ExecStart=` resets and appends `ReadWritePaths` across sorted `.conf` drop-ins; validates `systemd-analyze verify`, `LoadState`, `User=pdhcheckup`, `WorkingDirectory`, single effective `ExecStart`, `EnvironmentFiles`, `ReadWritePaths`/`ProtectSystem`, and service account runtime permissions before `systemctl restart`; tested with 3-drop-in fixture and invalid override fault injection |
